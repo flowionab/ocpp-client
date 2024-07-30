@@ -186,11 +186,11 @@ impl OCPP1_6Client {
         self.do_send_request(request, "StopTransaction").await
     }
 
-    pub async fn inspect_raw_message<F: FnMut(RawOcpp1_6Call) -> FF + Send + Sync + 'static, FF: Future<Output=Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + Sync>(&self, callback: F){
+    pub async fn inspect_raw_message<F: FnMut(String, Value) -> FF + Send + Sync + 'static, FF: Future<Output=()> + Send + Sync>(&self, mut callback: F){
         let mut recv = self.request_sender.subscribe();
         tokio::spawn(async move {
             while let Ok(call) = recv.recv().await {
-                callback(call)
+                callback(call.2.to_string(), call.3.to_owned()).await;
             }
         });
     }
