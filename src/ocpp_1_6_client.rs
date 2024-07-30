@@ -140,6 +140,12 @@ impl OCPP1_6Client {
         }
     }
 
+    pub async fn disconnect(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let mut lock = self.sink.lock().await;
+        lock.close().await?;
+        Ok(())
+    }
+
     pub async fn send_authorize(&mut self, request: AuthorizeRequest) -> Result<Result<AuthorizeResponse, OCPP1_6Error>, Box<dyn std::error::Error + Send + Sync>> {
         self.do_send_request(request, "Authorize").await
     }
@@ -178,6 +184,15 @@ impl OCPP1_6Client {
 
     pub async fn send_stop_transaction(&mut self, request: StopTransactionRequest) -> Result<Result<StopTransactionResponse, OCPP1_6Error>, Box<dyn std::error::Error + Send + Sync>> {
         self.do_send_request(request, "StopTransaction").await
+    }
+
+    pub async fn inspect_raw_message<F: FnMut(RawOcpp1_6Call) -> FF + Send + Sync + 'static, FF: Future<Output=Result<(), Box<dyn std::error::Error + Send + Sync>>> + Send + Sync>(&self, callback: F){
+        let mut recv = self.request_sender.subscribe();
+        tokio::spawn(async move {
+            while let Ok(call) = recv.recv().await {
+                callback(call)
+            }
+        });
     }
 
     pub async fn on_cancel_reservation<F: FnMut(CancelReservationRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<CancelReservationResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) {
