@@ -1,6 +1,6 @@
 [package]
 edition = '2021'
-name = "ocpp_client"
+name = "ocpp-client"
 version = "0.1.0"
 
 [dependencies]
