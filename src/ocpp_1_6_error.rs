@@ -289,7 +289,74 @@ impl fmt::Display for OCPP1_6Error {
 impl std::error::Error for OCPP1_6Error {}
 
 impl From<RawOcpp1_6Error> for OCPP1_6Error {
-    fn from(_value: RawOcpp1_6Error) -> Self {
-        todo!()
+    fn from(value: RawOcpp1_6Error) -> Self {
+        match value.2.as_str() {
+            "NotImplemented" => {
+                Self::NotImplemented {
+                    description: value.3,
+                    details: value.4
+                }
+            },
+            "NotSupported" => {
+                Self::NotSupported {
+                    description: value.3,
+                    details: value.4
+                }
+            },
+            "InternalError" => {
+                Self::InternalError {
+                    description: value.3,
+                    details: value.4
+                }
+            },
+            "ProtocolError" => {
+                Self::ProtocolError {
+                    description: value.3,
+                    details: value.4
+                }
+            },
+            "SecurityError" => {
+                Self::SecurityError {
+                    description: value.3,
+                    details: value.4
+                }
+            },
+            "FormationViolation" => {
+                Self::FormationViolation {
+                    description: value.3,
+                    details: value.4
+                }
+            },
+            "PropertyConstraintViolation" => {
+                Self::PropertyConstraintViolation {
+                    description: value.3,
+                    details: value.4
+                }
+            },
+            "OccurenceConstraintViolation" => {
+                Self::OccurenceConstraintViolation {
+                    description: value.3,
+                    details: value.4
+                }
+            },
+            "TypeConstraintViolation" => {
+                Self::TypeConstraintViolation {
+                    description: value.3,
+                    details: value.4
+                }
+            },
+            "GenericError" => {
+                Self::GenericError {
+                    description: value.3,
+                    details: value.4
+                }
+            },
+            _ => {
+                Self::GenericError {
+                    description: value.3,
+                    details: value.4
+                }
+            }
+        }
     }
 }
