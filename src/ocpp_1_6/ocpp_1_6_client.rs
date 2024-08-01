@@ -40,11 +40,12 @@ use tokio::sync::broadcast::Sender;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
-use crate::ocpp_1_6_error::OCPP1_6Error;
-use crate::raw_ocpp_1_6_call::RawOcpp1_6Call;
-use crate::raw_ocpp_1_6_error::RawOcpp1_6Error;
-use crate::raw_ocpp_1_6_result::RawOcpp1_6Result;
+use crate::ocpp_1_6::ocpp_1_6_error::OCPP1_6Error;
+use crate::ocpp_1_6::raw_ocpp_1_6_call::RawOcpp1_6Call;
+use crate::ocpp_1_6::raw_ocpp_1_6_error::RawOcpp1_6Error;
+use crate::ocpp_1_6::raw_ocpp_1_6_result::RawOcpp1_6Result;
 
+/// OCPP 1.6 client
 #[derive(Clone)]
 pub struct OCPP1_6Client {
     sink: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
@@ -140,6 +141,7 @@ impl OCPP1_6Client {
         }
     }
 
+    /// Disconnect from the server
     pub async fn disconnect(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         let mut lock = self.sink.lock().await;
         lock.close().await?;

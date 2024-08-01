@@ -8,8 +8,13 @@ license = "MIT OR Apache-2.0"
 authors = ["Joatin Granlund <joatin@granlund.io>"]
 keywords = ["OCPP", "ChargePoint", "Client", "ocpp16", "ocpp201"]
 
+[features]
+default = ["ocpp_1_6", "ocpp_2_0_1"]
+ocpp_1_6 = ["rust-ocpp/v1_6"]
+ocpp_2_0_1 = ["rust-ocpp/v2_0_1"]
+
 [dependencies]
-rust-ocpp = { version = "1.0", features = ["v2_0_1", "v1_6"] }
+rust-ocpp = { version = "1.0" }
 tokio = { version = "1", features = ["sync", "rt"] }
 futures = "0.3"
 tokio-tungstenite = { version = "0.23", features = ["rustls-tls-webpki-roots"] }

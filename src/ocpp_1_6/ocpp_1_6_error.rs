@@ -1,8 +1,9 @@
 use std::fmt::{self, Display};
 
 use serde_json::{json, Value};
-use crate::raw_ocpp_1_6_error::RawOcpp1_6Error;
+use crate::ocpp_1_6::raw_ocpp_1_6_error::RawOcpp1_6Error;
 
+/// Represents an OCPP 1.6 error
 #[derive(Debug, Clone)]
 pub enum OCPP1_6Error {
     NotImplemented { description: String, details: Value },
