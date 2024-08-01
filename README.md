@@ -44,12 +44,12 @@ The full documentation is available on [docs.rs](https://docs.rs/ocpp-client).
 
 ## Examples
 
-Check out the [examples](https://github.com/yourusername/ocpp-client/tree/main/examples) directory for more usage examples.
+Check out the [examples](https://github.com/flowionab/ocpp-client/tree/main/examples) directory for more usage examples.
 
 ## Contributing
 
-Contributions are welcome! Please see the [CONTRIBUTING.md](https://github.com/yourusername/ocpp-client/blob/main/CONTRIBUTING.md) for more details.
+Contributions are welcome! Please see the [CONTRIBUTING.md](https://github.com/flowionab/ocpp-client/blob/main/CONTRIBUTING.md) for more details.
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](https://github.com/yourusername/ocpp-client/blob/main/LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](https://github.com/flowionab/ocpp-client/blob/main/LICENSE) file for details.
