@@ -2,7 +2,7 @@
 
 [![Crates.io](https://img.shields.io/crates/v/ocpp-client)](https://crates.io/crates/ocpp-client)
 [![Documentation](https://docs.rs/ocpp-client/badge.svg)](https://docs.rs/ocpp-client)
-[![Build Status](https://github.com/flowionab/ocpp-client/workflows/CI/badge.svg)](https://github.com/yourusername/ocpp-client/actions)
+[![Build Status](https://github.com/flowionab/ocpp-client/workflows/ci.yaml/badge.svg)](https://github.com/flowionab/ocpp-client/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Overview
