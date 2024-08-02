@@ -10,7 +10,7 @@
 
 ## Features
 
-- **OCPP 1.6 JSON support**: Communicate with OCPP 1.6 JSON compliant servers (CSMS).
+- **OCPP 1.6 and 2.0.1 support**: Communicate with OCPP 1.6 or 2.0.1 JSON compliant servers (CSMS).
 - **Async/Await support**: Built using asynchronous Rust for high performance and scalability.
 - **Customizable**: Easily extendable to add custom message handlers or to support additional OCPP features.
 - **Error Handling**: Robust error handling and logging to assist in debugging and maintenance.
@@ -30,11 +30,20 @@ ocpp-client = "0.1"
 Here's a simple example to get you started:
 
 ```rust
-use ocpp_client::{Client, Configuration};
+use ocpp_client::connect;
 
 #[tokio::main]
 async fn main() {
+    let client = connect("wss://my-csms.com/CHARGER_IDENTITY").await?;
     
+    match client {
+        OCPP1_6(client) => {
+            // Do 1.6 specific operations
+        },
+        OCPP2_0_1(client) => {
+            // Do 2.0.1 specific operations
+        },
+    }
 }
 ```
 
