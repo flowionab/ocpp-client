@@ -1,4 +1,4 @@
-use std::collections::{BTreeMap};
+use std::collections::{BTreeMap, VecDeque};
 use std::future::Future;
 use std::sync::Arc;
 use futures::{SinkExt, StreamExt, TryStreamExt};
@@ -51,6 +51,8 @@ pub struct OCPP1_6Client {
     sink: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
     response_channels: Arc<Mutex<BTreeMap<Uuid, oneshot::Sender<Result<Value, OCPP1_6Error>>>>>,
     request_sender: Sender<RawOcpp1_6Call>,
+    pong_channels: Arc<Mutex<VecDeque<oneshot::Sender<()>>>>,
+    ping_sender: Sender<()>,
 }
 
 impl OCPP1_6Client {
@@ -60,15 +62,24 @@ impl OCPP1_6Client {
         let response_channels = Arc::new(Mutex::new(BTreeMap::<Uuid, oneshot::Sender<Result<Value, OCPP1_6Error>>>::new()));
         let response_channels2 = Arc::clone(&response_channels);
 
+        let pong_channels = Arc::new(Mutex::new(VecDeque::<oneshot::Sender<()>>::new()));
+        let pong_channels2 = Arc::clone(&pong_channels);
+
         let (request_sender, _) = tokio::sync::broadcast::channel(1000);
 
         let request_sender2 = request_sender.clone();
+
+        let (ping_sender, _) = tokio::sync::broadcast::channel(10);
+        let ping_sender2 = ping_sender.clone();
+
         tokio::spawn(async move {
             stream
                 .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))
                 .try_for_each(|message| {
                     let request_sender = request_sender2.clone();
                     let response_channels2 = response_channels2.clone();
+                    let ping_sender = ping_sender2.clone();
+                    let pong_channels2 = pong_channels2.clone();
                     let request_sender = request_sender.clone();{
                     let value = request_sender.clone();
                     async move {
@@ -125,6 +136,19 @@ impl OCPP1_6Client {
                                 }
 
                             }
+                            Message::Ping(_) => {
+                                if ping_sender.receiver_count() > 0 {
+                                    if let Err(err) = ping_sender.send(()) {
+                                        println!("Error sending websocket ping: {:?}", err);
+                                    };
+                                }
+                            }
+                            Message::Pong(_) => {
+                                let mut lock = pong_channels2.lock().await;
+                                if let Some(sender) = lock.pop_back() {
+                                    sender.send(()).unwrap();
+                                }
+                            }
                             _ => {}
                         }
                         Ok(())
@@ -137,7 +161,9 @@ impl OCPP1_6Client {
         Self {
             sink: Arc::new(Mutex::new(sink)),
             response_channels,
-            request_sender
+            request_sender,
+            pong_channels,
+            ping_sender,
         }
     }
 
@@ -186,6 +212,22 @@ impl OCPP1_6Client {
 
     pub async fn send_stop_transaction(&self, request: StopTransactionRequest) -> Result<Result<StopTransactionResponse, OCPP1_6Error>, Box<dyn std::error::Error + Send + Sync>> {
         self.do_send_request(request, "StopTransaction").await
+    }
+
+    pub async fn send_ping(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        {
+            let mut lock = self.sink.lock().await;
+            lock.send(Message::Ping(vec![])).await?;
+        }
+
+        let (s, r) = oneshot::channel();
+        {
+            let mut pong_channels = self.pong_channels.lock().await;
+            pong_channels.push_front(s);
+        }
+
+        r.await?;
+        Ok(())
     }
 
     pub async fn inspect_raw_message<F: FnMut(String, Value) -> FF + Send + Sync + 'static, FF: Future<Output=()> + Send + Sync>(&self, mut callback: F){
@@ -271,6 +313,17 @@ impl OCPP1_6Client {
 
     pub async fn on_update_firmware<F: FnMut(UpdateFirmwareRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<UpdateFirmwareResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) {
         self.handle_on_request(callback, "UpdateFirmware").await
+    }
+
+    pub async fn on_ping<F: FnMut(Self) -> FF + Send + Sync + 'static, FF: Future<Output=()> + Send + Sync>(&self, mut callback: F) {
+        let mut recv = self.ping_sender.subscribe();
+
+        let s = self.clone();
+        tokio::spawn(async move {
+            while let Ok(()) = recv.recv().await {
+                callback(s.clone()).await;
+            }
+        });
     }
 
     async fn handle_on_request<P: DeserializeOwned + Send + Sync, R: Serialize + Send + Sync, F: FnMut(P, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<R, OCPP1_6Error>> + Send + Sync>(&self, mut callback: F, action: &'static str) {
