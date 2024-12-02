@@ -69,7 +69,8 @@ async fn setup_socket(address: &str, protocols: &str, options: Option<ConnectOpt
     Ok((stream, protocol.to_str()?.to_string()))
 }
 
+#[derive(Debug, Clone)]
 pub struct ConnectOptions<'a> {
-    username: Option<&'a str>,
-    password: Option<&'a str>
+    pub username: Option<&'a str>,
+    pub password: Option<&'a str>
 }
