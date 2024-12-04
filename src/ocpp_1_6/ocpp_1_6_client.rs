@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 use futures::{SinkExt, StreamExt, TryStreamExt};
 use futures::stream::{SplitSink};
 use rust_ocpp::v1_6::messages::authorize::{AuthorizeRequest, AuthorizeResponse};
@@ -35,8 +36,9 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::{Value};
 use tokio::net::TcpStream;
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::{Mutex, oneshot, broadcast, mpsc};
 use tokio::sync::broadcast::Sender;
+use tokio::time::timeout;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
@@ -50,14 +52,17 @@ use crate::ocpp_1_6::raw_ocpp_1_6_result::RawOcpp1_6Result;
 pub struct OCPP1_6Client {
     sink: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
     response_channels: Arc<Mutex<BTreeMap<Uuid, oneshot::Sender<Result<Value, OCPP1_6Error>>>>>,
+    request_senders: Arc<Mutex<BTreeMap<String, mpsc::Sender<RawOcpp1_6Call>>>>,
     request_sender: Sender<RawOcpp1_6Call>,
     pong_channels: Arc<Mutex<VecDeque<oneshot::Sender<()>>>>,
     ping_sender: Sender<()>,
+    timeout: Duration
 }
 
 impl OCPP1_6Client {
     pub(crate) fn new(stream: WebSocketStream<MaybeTlsStream<TcpStream>>) -> Self {
         let (sink, stream) = stream.split();
+        let sink = Arc::new(Mutex::new(sink));
 
         let response_channels = Arc::new(Mutex::new(BTreeMap::<Uuid, oneshot::Sender<Result<Value, OCPP1_6Error>>>::new()));
         let response_channels2 = Arc::clone(&response_channels);
@@ -65,9 +70,12 @@ impl OCPP1_6Client {
         let pong_channels = Arc::new(Mutex::new(VecDeque::<oneshot::Sender<()>>::new()));
         let pong_channels2 = Arc::clone(&pong_channels);
 
-        let (request_sender, _) = tokio::sync::broadcast::channel(1000);
+        let (request_sender, _) = broadcast::channel(1000);
 
-        let request_sender2 = request_sender.clone();
+        let request_senders: Arc<Mutex<BTreeMap<String, mpsc::Sender<RawOcpp1_6Call>>>> = Arc::new(Mutex::new(BTreeMap::new()));
+
+        let request_senders2 = request_senders.clone();
+        let sink2 = sink.clone();
 
         let (ping_sender, _) = tokio::sync::broadcast::channel(10);
         let ping_sender2 = ping_sender.clone();
@@ -76,12 +84,11 @@ impl OCPP1_6Client {
             stream
                 .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))
                 .try_for_each(|message| {
-                    let request_sender = request_sender2.clone();
                     let response_channels2 = response_channels2.clone();
                     let ping_sender = ping_sender2.clone();
                     let pong_channels2 = pong_channels2.clone();
-                    let request_sender = request_sender.clone();{
-                    let value = request_sender.clone();
+                    let request_senders = request_senders2.clone();
+                    let sink = sink2.clone();
                     async move {
                         match message {
                             Message::Text(raw_payload) => {
@@ -97,10 +104,26 @@ impl OCPP1_6Client {
                                                         2 => {
                                                             let call: RawOcpp1_6Call =
                                                                 serde_json::from_str(&raw_payload).unwrap();
-                                                            if let Err(err) = value.send(call) {
-                                                                println!("Error sending request: {:?}", err);
+                                                            let action  = &call.2;
+                                                            let sender_opt = {
+                                                                let lock = request_senders.lock().await;
+                                                                lock.get(action).cloned()
                                                             };
-
+                                                            match sender_opt {
+                                                                None => {
+                                                                    let error = OCPP1_6Error::new_not_implemented(&format!("Action '{}' is not implemented", action));
+                                                                    let payload = serde_json::to_string(&RawOcpp1_6Error(4, call.1.to_string(), error.code().to_string(), error.description().to_string(), error.details().to_owned())).unwrap();
+                                                                    let mut lock = sink.lock().await;
+                                                                    if let Err(err) = lock.send(Message::Text(payload)).await {
+                                                                        println!("Failed to send response: {:?}", err)
+                                                                    }
+                                                                }
+                                                                Some(sender) => {
+                                                                    if let Err(err) = sender.send(call).await {
+                                                                        println!("Error sending request: {:?}", err);
+                                                                    };
+                                                                }
+                                                            }
                                                         },
                                                         // RESPONSE
                                                         3 => {
@@ -153,17 +176,19 @@ impl OCPP1_6Client {
                         }
                         Ok(())
                     }
-                    }
+
                 }).await?;
             Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
         });
 
         Self {
-            sink: Arc::new(Mutex::new(sink)),
+            sink,
             response_channels,
             request_sender,
+            request_senders,
             pong_channels,
             ping_sender,
+            timeout: Duration::from_secs(5)
         }
     }
 
@@ -315,6 +340,101 @@ impl OCPP1_6Client {
         self.handle_on_request(callback, "UpdateFirmware").await
     }
 
+    #[cfg(feature = "test")]
+    pub async fn wait_for_cancel_reservation<F: FnMut(CancelReservationRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<CancelReservationResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "CancelReservation").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_change_availability<F: FnMut(ChangeAvailabilityRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ChangeAvailabilityResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "ChangeAvailability").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_change_configuration<F: FnMut(ChangeConfigurationRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ChangeConfigurationResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "ChangeConfiguration").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_clear_cache<F: FnMut(ClearCacheRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ClearCacheResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "ClearCache").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_clear_charging_profile<F: FnMut(ClearChargingProfileRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ClearChargingProfileResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "ClearChargingProfile").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_data_transfer<F: FnMut(DataTransferRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<DataTransferResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "DataTransfer").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_get_composite_schedule<F: FnMut(GetCompositeScheduleRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetCompositeScheduleResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "GetCompositeSchedule").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_get_configuration<F: FnMut(GetConfigurationRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetConfigurationResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "GetConfiguration").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_get_diagnostics<F: FnMut(GetDiagnosticsRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetDiagnosticsResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "GetDiagnostics").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_get_local_list_version<F: FnMut(GetLocalListVersionRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetLocalListVersionResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "GetLocalListVersion").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_remote_start_transaction<F: FnMut(RemoteStartTransactionRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<RemoteStartTransactionResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "RemoteStartTransaction").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_remote_stop_transaction<F: FnMut(RemoteStopTransactionRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<RemoteStopTransactionResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "RemoteStopTransaction").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_reserve_now<F: FnMut(ReserveNowRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ReserveNowResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "ReserveNow").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_reset<F: FnMut(ResetRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ResetResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "Reset").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_send_local_list<F: FnMut(SendLocalListRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SendLocalListResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "SendLocalList").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_set_charging_profile<F: FnMut(SetChargingProfileRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SetChargingProfileResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "SetChargingProfile").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_trigger_message<F: FnMut(TriggerMessageRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<TriggerMessageResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "TriggerMessage").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_unlock_connector<F: FnMut(UnlockConnectorRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<UnlockConnectorResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "UnlockConnector").await
+    }
+
+    #[cfg(feature = "test")]
+    pub async fn wait_for_update_firmware<F: FnMut(UpdateFirmwareRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<UpdateFirmwareResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "UpdateFirmware").await
+    }
+
     pub async fn on_ping<F: FnMut(Self) -> FF + Send + Sync + 'static, FF: Future<Output=()> + Send + Sync>(&self, mut callback: F) {
         let mut recv = self.ping_sender.subscribe();
 
@@ -327,15 +447,16 @@ impl OCPP1_6Client {
     }
 
     async fn handle_on_request<P: DeserializeOwned + Send + Sync, R: Serialize + Send + Sync, F: FnMut(P, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<R, OCPP1_6Error>> + Send + Sync>(&self, mut callback: F, action: &'static str) {
-        let mut recv = self.request_sender.subscribe();
+        let (sender, mut recv) = mpsc::channel(1000);
+        {
+            let mut lock = self.request_senders.lock().await;
+            lock.insert(action.to_string(), sender);
+
+        }
 
         let s = self.clone();
         tokio::spawn(async move {
-            while let Ok(call) = recv.recv().await {
-                if call.2 != action {
-                    continue;
-                }
-
+            while let Some(call) = recv.recv().await {
                 match serde_json::from_value(call.3) {
                     Ok(payload) => {
                         let response = callback(payload, s.clone()).await;
@@ -347,6 +468,43 @@ impl OCPP1_6Client {
                 }
             }
         });
+    }
+
+    #[cfg(feature = "test")]
+    async fn handle_wait_for_request<P: DeserializeOwned + Send + Sync, R: Serialize + Send + Sync, F: FnMut(P, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<R, OCPP1_6Error>> + Send + Sync>(&self, mut callback: F, action: &'static str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+        let (sender, mut recv) = mpsc::channel(1000);
+        {
+            let mut lock = self.request_senders.lock().await;
+            lock.insert(action.to_string(), sender);
+
+        }
+
+        let s = self.clone();
+        match timeout(self.timeout, recv.recv()).await {
+            Ok(opt) => {
+                match opt {
+                    None => {
+                        Err("No call received".into())
+                    }
+                    Some(call) => {
+                        match serde_json::from_value(call.3) {
+                            Ok(payload) => {
+                                let response = callback(payload, s.clone()).await;
+                                self.do_send_response(response, &call.1).await;
+                                Ok(())
+                            }
+                            Err(err) => {
+                                println!("Failed to parse payload: {:?}", err);
+                                Err("Failed to parse payload".into())
+                            }
+                        }
+                    }
+                }
+            }
+            Err(_) => {
+                Err("Timeout".into())
+            }
+        }
     }
 
     async fn do_send_response<R: Serialize>(&self, response: Result<R, OCPP1_6Error>, message_id: &str) {
@@ -381,11 +539,18 @@ impl OCPP1_6Client {
             response_channels.insert(message_id, s);
         }
 
-         match r.await? {
-             Ok(value) => {
-                 Ok(Ok(serde_json::from_value(value)?))
+         match timeout(self.timeout, r).await? {
+             Ok(res) => {
+                 match res {
+                     Ok(value) => {
+                         Ok(Ok(serde_json::from_value(value)?))
+                     }
+                     Err(e) => Ok(Err(e))
+                 }
              }
-             Err(e) => Ok(Err(e))
+             Err(_) => {
+                 Err("Timeout".into())
+             }
          }
     }
 }

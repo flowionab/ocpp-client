@@ -12,10 +12,11 @@ keywords = ["OCPP", "ChargePoint", "Client", "ocpp16", "ocpp201"]
 default = ["ocpp_1_6", "ocpp_2_0_1"]
 ocpp_1_6 = ["rust-ocpp/v1_6"]
 ocpp_2_0_1 = ["rust-ocpp/v2_0_1"]
+test = []
 
 [dependencies]
 rust-ocpp = { version = "2.0", default-features = false }
-tokio = { version = "1", features = ["sync", "rt"] }
+tokio = { version = "1", features = ["sync", "rt", "time"] }
 futures = "0.3"
 tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
 url = "2.5"
