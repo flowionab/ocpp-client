@@ -487,11 +487,11 @@ impl OCPP1_6Client {
                         Err("No call received".into())
                     }
                     Some(call) => {
-                        match serde_json::from_value(call.3) {
+                        match serde_json::from_value(call.3.clone()) {
                             Ok(payload) => {
-                                let response = callback(payload.clone(), s.clone()).await;
+                                let response = callback(payload, s.clone()).await;
                                 self.do_send_response(response, &call.1).await;
-                                Ok(payload)
+                                Ok(serde_json::from_value(call.3).unwrap())
                             }
                             Err(err) => {
                                 println!("Failed to parse payload: {:?}", err);
