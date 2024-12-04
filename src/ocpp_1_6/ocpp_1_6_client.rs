@@ -341,97 +341,97 @@ impl OCPP1_6Client {
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_cancel_reservation<F: FnMut(CancelReservationRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<CancelReservationResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_cancel_reservation<F: FnMut(CancelReservationRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<CancelReservationResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<CancelReservationRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "CancelReservation").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_change_availability<F: FnMut(ChangeAvailabilityRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ChangeAvailabilityResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_change_availability<F: FnMut(ChangeAvailabilityRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ChangeAvailabilityResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<ChangeAvailabilityRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "ChangeAvailability").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_change_configuration<F: FnMut(ChangeConfigurationRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ChangeConfigurationResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_change_configuration<F: FnMut(ChangeConfigurationRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ChangeConfigurationResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<ChangeConfigurationRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "ChangeConfiguration").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_clear_cache<F: FnMut(ClearCacheRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ClearCacheResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_clear_cache<F: FnMut(ClearCacheRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ClearCacheResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<ClearCacheRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "ClearCache").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_clear_charging_profile<F: FnMut(ClearChargingProfileRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ClearChargingProfileResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_clear_charging_profile<F: FnMut(ClearChargingProfileRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ClearChargingProfileResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<ClearChargingProfileRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "ClearChargingProfile").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_data_transfer<F: FnMut(DataTransferRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<DataTransferResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_data_transfer<F: FnMut(DataTransferRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<DataTransferResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<DataTransferRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "DataTransfer").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_get_composite_schedule<F: FnMut(GetCompositeScheduleRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetCompositeScheduleResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_get_composite_schedule<F: FnMut(GetCompositeScheduleRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetCompositeScheduleResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<GetCompositeScheduleRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "GetCompositeSchedule").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_get_configuration<F: FnMut(GetConfigurationRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetConfigurationResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_get_configuration<F: FnMut(GetConfigurationRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetConfigurationResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<GetConfigurationRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "GetConfiguration").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_get_diagnostics<F: FnMut(GetDiagnosticsRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetDiagnosticsResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_get_diagnostics<F: FnMut(GetDiagnosticsRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetDiagnosticsResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<GetDiagnosticsRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "GetDiagnostics").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_get_local_list_version<F: FnMut(GetLocalListVersionRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetLocalListVersionResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_get_local_list_version<F: FnMut(GetLocalListVersionRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetLocalListVersionResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<GetLocalListVersionRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "GetLocalListVersion").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_remote_start_transaction<F: FnMut(RemoteStartTransactionRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<RemoteStartTransactionResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_remote_start_transaction<F: FnMut(RemoteStartTransactionRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<RemoteStartTransactionResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<RemoteStartTransactionRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "RemoteStartTransaction").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_remote_stop_transaction<F: FnMut(RemoteStopTransactionRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<RemoteStopTransactionResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_remote_stop_transaction<F: FnMut(RemoteStopTransactionRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<RemoteStopTransactionResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<RemoteStopTransactionRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "RemoteStopTransaction").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_reserve_now<F: FnMut(ReserveNowRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ReserveNowResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_reserve_now<F: FnMut(ReserveNowRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ReserveNowResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<ReserveNowRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "ReserveNow").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_reset<F: FnMut(ResetRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ResetResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_reset<F: FnMut(ResetRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ResetResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<ResetRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "Reset").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_send_local_list<F: FnMut(SendLocalListRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SendLocalListResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_send_local_list<F: FnMut(SendLocalListRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SendLocalListResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<SendLocalListRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "SendLocalList").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_set_charging_profile<F: FnMut(SetChargingProfileRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SetChargingProfileResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_set_charging_profile<F: FnMut(SetChargingProfileRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SetChargingProfileResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<SetChargingProfileRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "SetChargingProfile").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_trigger_message<F: FnMut(TriggerMessageRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<TriggerMessageResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_trigger_message<F: FnMut(TriggerMessageRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<TriggerMessageResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<TriggerMessageRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "TriggerMessage").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_unlock_connector<F: FnMut(UnlockConnectorRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<UnlockConnectorResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_unlock_connector<F: FnMut(UnlockConnectorRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<UnlockConnectorResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<UnlockConnectorRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "UnlockConnector").await
     }
 
     #[cfg(feature = "test")]
-    pub async fn wait_for_update_firmware<F: FnMut(UpdateFirmwareRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<UpdateFirmwareResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    pub async fn wait_for_update_firmware<F: FnMut(UpdateFirmwareRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<UpdateFirmwareResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) -> Result<UpdateFirmwareRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "UpdateFirmware").await
     }
 
@@ -471,7 +471,7 @@ impl OCPP1_6Client {
     }
 
     #[cfg(feature = "test")]
-    async fn handle_wait_for_request<P: DeserializeOwned + Send + Sync, R: Serialize + Send + Sync, F: FnMut(P, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<R, OCPP1_6Error>> + Send + Sync>(&self, mut callback: F, action: &'static str) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    async fn handle_wait_for_request<P: DeserializeOwned + Send + Sync, R: Serialize + Send + Sync, F: FnMut(P, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<R, OCPP1_6Error>> + Send + Sync>(&self, mut callback: F, action: &'static str) -> Result<P, Box<dyn std::error::Error + Send + Sync>> {
         let (sender, mut recv) = mpsc::channel(1000);
         {
             let mut lock = self.request_senders.lock().await;
@@ -489,9 +489,9 @@ impl OCPP1_6Client {
                     Some(call) => {
                         match serde_json::from_value(call.3) {
                             Ok(payload) => {
-                                let response = callback(payload, s.clone()).await;
+                                let response = callback(payload.clone(), s.clone()).await;
                                 self.do_send_response(response, &call.1).await;
-                                Ok(())
+                                Ok(payload)
                             }
                             Err(err) => {
                                 println!("Failed to parse payload: {:?}", err);
