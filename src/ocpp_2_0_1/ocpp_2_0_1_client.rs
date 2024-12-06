@@ -109,6 +109,7 @@ impl OCPP2_0_1Client {
 
         let (ping_sender, _) = tokio::sync::broadcast::channel(10);
         let ping_sender2 = ping_sender.clone();
+        let sink2 = sink.clone();
 
         tokio::spawn(async move {
             stream
@@ -117,6 +118,7 @@ impl OCPP2_0_1Client {
                     let request_senders = request_senders2.clone();
                     let response_channels2 = response_channels2.clone();
                     let ping_sender = ping_sender2.clone();
+                    let sink = sink2.clone();
                     let pong_channels2 = pong_channels2.clone();{
                         async move {
                             match message {
@@ -500,154 +502,192 @@ impl OCPP2_0_1Client {
         self.handle_on_request(callback, "UpdateFirmware").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_cancel_reservation<F: FnMut(CancelReservationRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<CancelReservationResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<CancelReservationRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "CancelReservation").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_certificate_signed<F: FnMut(CertificateSignedRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<CertificateSignedResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<CertificateSignedRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "CertificateSigned").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_change_availability<F: FnMut(ChangeAvailabilityRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ChangeAvailabilityResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<ChangeAvailabilityRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "ChangeAvailability").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_clear_cache<F: FnMut(ClearCacheRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ClearCacheResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<ClearCacheRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "ClearCache").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_clear_charging_profile<F: FnMut(ClearChargingProfileRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ClearChargingProfileResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<ClearChargingProfileRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "ClearChargingProfile").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_clear_display_message<F: FnMut(ClearDisplayMessageRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ClearDisplayMessageResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<ClearDisplayMessageRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "ClearDisplayMessage").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_clear_variable_monitoring<F: FnMut(ClearVariableMonitoringRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ClearVariableMonitoringResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<ClearVariableMonitoringRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "ClearVariableMonitoring").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_cost_updated<F: FnMut(CostUpdatedRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<CostUpdatedResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<CostUpdatedRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "CostUpdated").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_customer_information<F: FnMut(CustomerInformationRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<CustomerInformationResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<CustomerInformationRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "CustomerInformation").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_data_transfer<F: FnMut(DataTransferRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<DataTransferResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<DataTransferRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "DataTransfer").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_delete_certificate<F: FnMut(DeleteCertificateRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<DeleteCertificateResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<DeleteCertificateRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "DeleteCertificate").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_get_base_report<F: FnMut(GetBaseReportRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetBaseReportResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetBaseReportRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "GetBaseReport").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_get_charging_profiles<F: FnMut(GetChargingProfilesRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetChargingProfilesResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetChargingProfilesRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "GetChargingProfiles").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_get_composite_schedule<F: FnMut(GetCompositeScheduleRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetCompositeScheduleResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetCompositeScheduleRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "GetCompositeSchedule").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_get_display_messages<F: FnMut(GetDisplayMessagesRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetDisplayMessagesResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetDisplayMessagesRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "GetDisplayMessages").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_get_installed_certificate_ids<F: FnMut(GetInstalledCertificateIdsRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetInstalledCertificateIdsResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetInstalledCertificateIdsRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "GetInstalledCertificateIds").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_get_local_list_version<F: FnMut(GetLocalListVersionRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetLocalListVersionResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetLocalListVersionRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "GetLocalListVersion").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_get_log<F: FnMut(GetLogRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetLogResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetLogRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "GetLog").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_get_monitoring_report<F: FnMut(GetMonitoringReportRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetMonitoringReportResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetMonitoringReportRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "GetMonitoringReport").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_get_report<F: FnMut(GetReportRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetReportResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetReportRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "GetReport").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_get_transaction_status<F: FnMut(GetTransactionStatusRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetTransactionStatusResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetTransactionStatusRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "GetTransactionStatus").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_get_variables<F: FnMut(GetVariablesRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetVariablesResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetVariablesRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "GetVariables").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_install_certificate<F: FnMut(InstallCertificateRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<InstallCertificateResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<InstallCertificateRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "InstallCertificate").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_publish_firmware<F: FnMut(PublishFirmwareRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<PublishFirmwareResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<PublishFirmwareRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "PublishFirmware").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_reserve_now<F: FnMut(ReserveNowRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ReserveNowResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<ReserveNowRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "ReserveNow").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_reset<F: FnMut(ResetRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ResetResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<ResetRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "Reset").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_send_local_list<F: FnMut(SendLocalListRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SendLocalListResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<SendLocalListRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "SendLocalList").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_set_charging_profile<F: FnMut(SetChargingProfileRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SetChargingProfileResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<SetChargingProfileRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "SetChargingProfile").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_set_display_message<F: FnMut(SetDisplayMessageRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SetDisplayMessageResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<SetDisplayMessageRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "SetDisplayMessage").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_set_monitoring_base<F: FnMut(SetMonitoringBaseRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SetMonitoringBaseResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<SetMonitoringBaseRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "SetMonitoringBase").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_set_monitoring_level<F: FnMut(SetMonitoringLevelRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SetMonitoringLevelResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<SetMonitoringLevelRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "SetMonitoringLevel").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_set_network_profile<F: FnMut(SetNetworkProfileRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SetNetworkProfileResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<SetNetworkProfileRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "SetNetworkProfile").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_set_variable_monitoring<F: FnMut(SetVariableMonitoringRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SetVariableMonitoringResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<SetVariableMonitoringRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "SetVariableMonitoring").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_set_variables<F: FnMut(SetVariablesRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SetVariablesResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<SetVariablesRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "SetVariables").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_trigger_message<F: FnMut(TriggerMessageRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<TriggerMessageResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<TriggerMessageRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "TriggerMessage").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_unlock_connector<F: FnMut(UnlockConnectorRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<UnlockConnectorResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<UnlockConnectorRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "UnlockConnector").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_unpublish_firmware<F: FnMut(UnpublishFirmwareRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<UnpublishFirmwareResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<UnpublishFirmwareRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "UnpublishFirmware").await
     }
 
+    #[cfg(feature = "test")]
     pub async fn wait_for_update_firmware<F: FnMut(UpdateFirmwareRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<UpdateFirmwareResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<UpdateFirmwareRequest, Box<dyn std::error::Error + Send + Sync>> {
         self.handle_wait_for_request(callback, "UpdateFirmware").await
     }
