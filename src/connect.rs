@@ -7,7 +7,6 @@ use tokio_tungstenite::tungstenite::http::{Request};
 use tokio_tungstenite::tungstenite::http::header::{AUTHORIZATION, SEC_WEBSOCKET_PROTOCOL};
 use url::Url;
 use crate::client::Client;
-
 #[cfg(feature = "ocpp_1_6")]
 use crate::ocpp_1_6::OCPP1_6Client;
 
@@ -25,10 +24,10 @@ pub async fn connect(address: &str, options: Option<ConnectOptions<'_>>) -> Resu
         }
         #[cfg(feature = "ocpp_2_0_1")]
         "ocpp2.0.1" => {
-            Err("Not supported".into())
+            Ok(Client::OCPP2_0_1(OCPP2_0_1Client::new(stream)))
         }
         _ => {
-            Err("Connected to unknown OCPP server".into())
+            Err("The CSMS server has selected a protocol that we don't support".into())
         }
     }
 }
