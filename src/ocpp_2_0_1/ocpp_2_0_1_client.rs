@@ -1,6 +1,7 @@
 use std::collections::{BTreeMap, VecDeque};
 use std::future::Future;
 use std::sync::Arc;
+use std::time::Duration;
 use futures::stream::SplitSink;
 use futures::{SinkExt, StreamExt, TryStreamExt};
 use rust_ocpp::v2_0_1::messages::authorize::{AuthorizeRequest, AuthorizeResponse};
@@ -70,11 +71,13 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 use serde_json::Value;
 use tokio::net::TcpStream;
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::{Mutex, oneshot, mpsc};
 use tokio::sync::broadcast::Sender;
+use tokio::time::timeout;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use tokio_tungstenite::tungstenite::Message;
 use uuid::Uuid;
+use crate::ocpp_1_6::OCPP1_6Error;
 use crate::ocpp_2_0_1::OCPP2_0_1Error;
 use crate::ocpp_2_0_1::raw_ocpp_2_0_1_call::RawOcpp2_0_1Call;
 use crate::ocpp_2_0_1::raw_ocpp_2_0_1_error::RawOcpp2_0_1Error;
@@ -85,24 +88,24 @@ use crate::ocpp_2_0_1::raw_ocpp_2_0_1_result::RawOcpp2_0_1Result;
 pub struct OCPP2_0_1Client {
     sink: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
     response_channels: Arc<Mutex<BTreeMap<Uuid, oneshot::Sender<Result<Value, OCPP2_0_1Error>>>>>,
-    request_sender: Sender<RawOcpp2_0_1Call>,
+    request_senders: Arc<Mutex<BTreeMap<String, mpsc::Sender<RawOcpp2_0_1Call>>>>,
     pong_channels: Arc<Mutex<VecDeque<oneshot::Sender<()>>>>,
     ping_sender: Sender<()>,
+    timeout: Duration
 }
 
 impl OCPP2_0_1Client {
     pub(crate) fn new(stream: WebSocketStream<MaybeTlsStream<TcpStream>>) -> Self {
         let (sink, stream) = stream.split();
-
+        let sink = Arc::new(Mutex::new(sink));
         let response_channels = Arc::new(Mutex::new(BTreeMap::<Uuid, oneshot::Sender<Result<Value, OCPP2_0_1Error>>>::new()));
         let response_channels2 = Arc::clone(&response_channels);
 
         let pong_channels = Arc::new(Mutex::new(VecDeque::<oneshot::Sender<()>>::new()));
         let pong_channels2 = Arc::clone(&pong_channels);
+        let request_senders: Arc<Mutex<BTreeMap<String, mpsc::Sender<RawOcpp2_0_1Call>>>> = Arc::new(Mutex::new(BTreeMap::new()));
 
-        let (request_sender, _) = tokio::sync::broadcast::channel(1000);
-
-        let request_sender2 = request_sender.clone();
+        let request_senders2 = request_senders.clone();
 
         let (ping_sender, _) = tokio::sync::broadcast::channel(10);
         let ping_sender2 = ping_sender.clone();
@@ -111,12 +114,10 @@ impl OCPP2_0_1Client {
             stream
                 .map_err(|e| Box::<dyn std::error::Error + Send + Sync>::from(e))
                 .try_for_each(|message| {
-                    let request_sender = request_sender2.clone();
+                    let request_senders = request_senders2.clone();
                     let response_channels2 = response_channels2.clone();
                     let ping_sender = ping_sender2.clone();
-                    let pong_channels2 = pong_channels2.clone();
-                    let request_sender = request_sender.clone();{
-                        let value = request_sender.clone();
+                    let pong_channels2 = pong_channels2.clone();{
                         async move {
                             match message {
                                 Message::Text(raw_payload) => {
@@ -132,9 +133,26 @@ impl OCPP2_0_1Client {
                                                             2 => {
                                                                 let call: RawOcpp2_0_1Call =
                                                                     serde_json::from_str(&raw_payload).unwrap();
-                                                                if let Err(err) = value.send(call) {
-                                                                    println!("Error sending request: {:?}", err);
+                                                                let action  = &call.2;
+                                                                let sender_opt = {
+                                                                    let lock = request_senders.lock().await;
+                                                                    lock.get(action).cloned()
                                                                 };
+                                                                match sender_opt {
+                                                                    None => {
+                                                                        let error = OCPP1_6Error::new_not_implemented(&format!("Action '{}' is not implemented", action));
+                                                                        let payload = serde_json::to_string(&RawOcpp2_0_1Error(4, call.1.to_string(), error.code().to_string(), error.description().to_string(), error.details().to_owned())).unwrap();
+                                                                        let mut lock = sink.lock().await;
+                                                                        if let Err(err) = lock.send(Message::Text(payload)).await {
+                                                                            println!("Failed to send response: {:?}", err)
+                                                                        }
+                                                                    }
+                                                                    Some(sender) => {
+                                                                        if let Err(err) = sender.send(call).await {
+                                                                            println!("Error sending request: {:?}", err);
+                                                                        };
+                                                                    }
+                                                                }
 
                                                             },
                                                             // RESPONSE
@@ -194,11 +212,12 @@ impl OCPP2_0_1Client {
         });
 
         Self {
-            sink: Arc::new(Mutex::new(sink)),
+            sink,
             response_channels,
-            request_sender,
+            request_senders,
             pong_channels,
             ping_sender,
+            timeout: Duration::from_secs(5)
         }
     }
 
@@ -327,15 +346,6 @@ impl OCPP2_0_1Client {
 
         r.await?;
         Ok(())
-    }
-
-    pub async fn inspect_raw_message<F: FnMut(String, Value) -> FF + Send + Sync + 'static, FF: Future<Output=()> + Send + Sync>(&self, mut callback: F){
-        let mut recv = self.request_sender.subscribe();
-        tokio::spawn(async move {
-            while let Ok(call) = recv.recv().await {
-                callback(call.2.to_string(), call.3.to_owned()).await;
-            }
-        });
     }
 
     pub async fn on_cancel_reservation<F: FnMut(CancelReservationRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<CancelReservationResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) {
@@ -490,6 +500,158 @@ impl OCPP2_0_1Client {
         self.handle_on_request(callback, "UpdateFirmware").await
     }
 
+    pub async fn wait_for_cancel_reservation<F: FnMut(CancelReservationRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<CancelReservationResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<CancelReservationRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "CancelReservation").await
+    }
+
+    pub async fn wait_for_certificate_signed<F: FnMut(CertificateSignedRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<CertificateSignedResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<CertificateSignedRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "CertificateSigned").await
+    }
+
+    pub async fn wait_for_change_availability<F: FnMut(ChangeAvailabilityRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ChangeAvailabilityResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<ChangeAvailabilityRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "ChangeAvailability").await
+    }
+
+    pub async fn wait_for_clear_cache<F: FnMut(ClearCacheRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ClearCacheResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<ClearCacheRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "ClearCache").await
+    }
+
+    pub async fn wait_for_clear_charging_profile<F: FnMut(ClearChargingProfileRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ClearChargingProfileResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<ClearChargingProfileRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "ClearChargingProfile").await
+    }
+
+    pub async fn wait_for_clear_display_message<F: FnMut(ClearDisplayMessageRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ClearDisplayMessageResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<ClearDisplayMessageRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "ClearDisplayMessage").await
+    }
+
+    pub async fn wait_for_clear_variable_monitoring<F: FnMut(ClearVariableMonitoringRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ClearVariableMonitoringResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<ClearVariableMonitoringRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "ClearVariableMonitoring").await
+    }
+
+    pub async fn wait_for_cost_updated<F: FnMut(CostUpdatedRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<CostUpdatedResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<CostUpdatedRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "CostUpdated").await
+    }
+
+    pub async fn wait_for_customer_information<F: FnMut(CustomerInformationRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<CustomerInformationResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<CustomerInformationRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "CustomerInformation").await
+    }
+
+    pub async fn wait_for_data_transfer<F: FnMut(DataTransferRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<DataTransferResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<DataTransferRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "DataTransfer").await
+    }
+
+    pub async fn wait_for_delete_certificate<F: FnMut(DeleteCertificateRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<DeleteCertificateResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<DeleteCertificateRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "DeleteCertificate").await
+    }
+
+    pub async fn wait_for_get_base_report<F: FnMut(GetBaseReportRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetBaseReportResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetBaseReportRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "GetBaseReport").await
+    }
+
+    pub async fn wait_for_get_charging_profiles<F: FnMut(GetChargingProfilesRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetChargingProfilesResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetChargingProfilesRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "GetChargingProfiles").await
+    }
+
+    pub async fn wait_for_get_composite_schedule<F: FnMut(GetCompositeScheduleRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetCompositeScheduleResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetCompositeScheduleRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "GetCompositeSchedule").await
+    }
+
+    pub async fn wait_for_get_display_messages<F: FnMut(GetDisplayMessagesRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetDisplayMessagesResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetDisplayMessagesRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "GetDisplayMessages").await
+    }
+
+    pub async fn wait_for_get_installed_certificate_ids<F: FnMut(GetInstalledCertificateIdsRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetInstalledCertificateIdsResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetInstalledCertificateIdsRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "GetInstalledCertificateIds").await
+    }
+
+    pub async fn wait_for_get_local_list_version<F: FnMut(GetLocalListVersionRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetLocalListVersionResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetLocalListVersionRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "GetLocalListVersion").await
+    }
+
+    pub async fn wait_for_get_log<F: FnMut(GetLogRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetLogResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetLogRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "GetLog").await
+    }
+
+    pub async fn wait_for_get_monitoring_report<F: FnMut(GetMonitoringReportRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetMonitoringReportResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetMonitoringReportRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "GetMonitoringReport").await
+    }
+
+    pub async fn wait_for_get_report<F: FnMut(GetReportRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetReportResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetReportRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "GetReport").await
+    }
+
+    pub async fn wait_for_get_transaction_status<F: FnMut(GetTransactionStatusRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetTransactionStatusResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetTransactionStatusRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "GetTransactionStatus").await
+    }
+
+    pub async fn wait_for_get_variables<F: FnMut(GetVariablesRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<GetVariablesResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<GetVariablesRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "GetVariables").await
+    }
+
+    pub async fn wait_for_install_certificate<F: FnMut(InstallCertificateRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<InstallCertificateResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<InstallCertificateRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "InstallCertificate").await
+    }
+
+    pub async fn wait_for_publish_firmware<F: FnMut(PublishFirmwareRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<PublishFirmwareResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<PublishFirmwareRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "PublishFirmware").await
+    }
+
+    pub async fn wait_for_reserve_now<F: FnMut(ReserveNowRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ReserveNowResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<ReserveNowRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "ReserveNow").await
+    }
+
+    pub async fn wait_for_reset<F: FnMut(ResetRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<ResetResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<ResetRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "Reset").await
+    }
+
+    pub async fn wait_for_send_local_list<F: FnMut(SendLocalListRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SendLocalListResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<SendLocalListRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "SendLocalList").await
+    }
+
+    pub async fn wait_for_set_charging_profile<F: FnMut(SetChargingProfileRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SetChargingProfileResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<SetChargingProfileRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "SetChargingProfile").await
+    }
+
+    pub async fn wait_for_set_display_message<F: FnMut(SetDisplayMessageRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SetDisplayMessageResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<SetDisplayMessageRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "SetDisplayMessage").await
+    }
+
+    pub async fn wait_for_set_monitoring_base<F: FnMut(SetMonitoringBaseRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SetMonitoringBaseResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<SetMonitoringBaseRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "SetMonitoringBase").await
+    }
+
+    pub async fn wait_for_set_monitoring_level<F: FnMut(SetMonitoringLevelRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SetMonitoringLevelResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<SetMonitoringLevelRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "SetMonitoringLevel").await
+    }
+
+    pub async fn wait_for_set_network_profile<F: FnMut(SetNetworkProfileRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SetNetworkProfileResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<SetNetworkProfileRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "SetNetworkProfile").await
+    }
+
+    pub async fn wait_for_set_variable_monitoring<F: FnMut(SetVariableMonitoringRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SetVariableMonitoringResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<SetVariableMonitoringRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "SetVariableMonitoring").await
+    }
+
+    pub async fn wait_for_set_variables<F: FnMut(SetVariablesRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<SetVariablesResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<SetVariablesRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "SetVariables").await
+    }
+
+    pub async fn wait_for_trigger_message<F: FnMut(TriggerMessageRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<TriggerMessageResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<TriggerMessageRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "TriggerMessage").await
+    }
+
+    pub async fn wait_for_unlock_connector<F: FnMut(UnlockConnectorRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<UnlockConnectorResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<UnlockConnectorRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "UnlockConnector").await
+    }
+
+    pub async fn wait_for_unpublish_firmware<F: FnMut(UnpublishFirmwareRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<UnpublishFirmwareResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<UnpublishFirmwareRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "UnpublishFirmware").await
+    }
+
+    pub async fn wait_for_update_firmware<F: FnMut(UpdateFirmwareRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<UpdateFirmwareResponse, OCPP2_0_1Error>> + Send + Sync>(&self, callback: F) -> Result<UpdateFirmwareRequest, Box<dyn std::error::Error + Send + Sync>> {
+        self.handle_wait_for_request(callback, "UpdateFirmware").await
+    }
+
     pub async fn on_ping<F: FnMut(Self) -> FF + Send + Sync + 'static, FF: Future<Output=()> + Send + Sync>(&self, mut callback: F) {
         let mut recv = self.ping_sender.subscribe();
 
@@ -502,15 +664,16 @@ impl OCPP2_0_1Client {
     }
 
     async fn handle_on_request<P: DeserializeOwned + Send + Sync, R: Serialize + Send + Sync, F: FnMut(P, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<R, OCPP2_0_1Error>> + Send + Sync>(&self, mut callback: F, action: &'static str) {
-        let mut recv = self.request_sender.subscribe();
+        let (sender, mut recv) = mpsc::channel(1000);
+        {
+            let mut lock = self.request_senders.lock().await;
+            lock.insert(action.to_string(), sender);
+
+        }
 
         let s = self.clone();
         tokio::spawn(async move {
-            while let Ok(call) = recv.recv().await {
-                if call.2 != action {
-                    continue;
-                }
-
+            while let Some(call) = recv.recv().await {
                 match serde_json::from_value(call.3) {
                     Ok(payload) => {
                         let response = callback(payload, s.clone()).await;
@@ -522,6 +685,43 @@ impl OCPP2_0_1Client {
                 }
             }
         });
+    }
+
+    #[cfg(feature = "test")]
+    async fn handle_wait_for_request<P: DeserializeOwned + Send + Sync, R: Serialize + Send + Sync, F: FnMut(P, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<R, OCPP2_0_1Error>> + Send + Sync>(&self, mut callback: F, action: &'static str) -> Result<P, Box<dyn std::error::Error + Send + Sync>> {
+        let (sender, mut recv) = mpsc::channel(1000);
+        {
+            let mut lock = self.request_senders.lock().await;
+            lock.insert(action.to_string(), sender);
+
+        }
+
+        let s = self.clone();
+        match timeout(self.timeout, recv.recv()).await {
+            Ok(opt) => {
+                match opt {
+                    None => {
+                        Err("No call received".into())
+                    }
+                    Some(call) => {
+                        match serde_json::from_value(call.3.clone()) {
+                            Ok(payload) => {
+                                let response = callback(payload, s.clone()).await;
+                                self.do_send_response(response, &call.1).await;
+                                Ok(serde_json::from_value(call.3).unwrap())
+                            }
+                            Err(err) => {
+                                println!("Failed to parse payload: {:?}", err);
+                                Err("Failed to parse payload".into())
+                            }
+                        }
+                    }
+                }
+            }
+            Err(_) => {
+                Err("Timeout".into())
+            }
+        }
     }
 
     async fn do_send_response<R: Serialize>(&self, response: Result<R, OCPP2_0_1Error>, message_id: &str) {

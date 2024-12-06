@@ -53,7 +53,6 @@ pub struct OCPP1_6Client {
     sink: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
     response_channels: Arc<Mutex<BTreeMap<Uuid, oneshot::Sender<Result<Value, OCPP1_6Error>>>>>,
     request_senders: Arc<Mutex<BTreeMap<String, mpsc::Sender<RawOcpp1_6Call>>>>,
-    request_sender: Sender<RawOcpp1_6Call>,
     pong_channels: Arc<Mutex<VecDeque<oneshot::Sender<()>>>>,
     ping_sender: Sender<()>,
     timeout: Duration
@@ -69,8 +68,6 @@ impl OCPP1_6Client {
 
         let pong_channels = Arc::new(Mutex::new(VecDeque::<oneshot::Sender<()>>::new()));
         let pong_channels2 = Arc::clone(&pong_channels);
-
-        let (request_sender, _) = broadcast::channel(1000);
 
         let request_senders: Arc<Mutex<BTreeMap<String, mpsc::Sender<RawOcpp1_6Call>>>> = Arc::new(Mutex::new(BTreeMap::new()));
 
@@ -184,7 +181,6 @@ impl OCPP1_6Client {
         Self {
             sink,
             response_channels,
-            request_sender,
             request_senders,
             pong_channels,
             ping_sender,
@@ -253,15 +249,6 @@ impl OCPP1_6Client {
 
         r.await?;
         Ok(())
-    }
-
-    pub async fn inspect_raw_message<F: FnMut(String, Value) -> FF + Send + Sync + 'static, FF: Future<Output=()> + Send + Sync>(&self, mut callback: F){
-        let mut recv = self.request_sender.subscribe();
-        tokio::spawn(async move {
-            while let Ok(call) = recv.recv().await {
-                callback(call.2.to_string(), call.3.to_owned()).await;
-            }
-        });
     }
 
     pub async fn on_cancel_reservation<F: FnMut(CancelReservationRequest, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<CancelReservationResponse, OCPP1_6Error>> + Send + Sync>(&self, callback: F) {
