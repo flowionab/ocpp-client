@@ -34,8 +34,8 @@ use ocpp_client::connect;
 
 #[tokio::main]
 async fn main() {
-    let client = connect("wss://my-csms.com/CHARGER_IDENTITY").await?;
-    
+    let client = connect("wss://my-csms.com/CHARGER_IDENTITY", None).await?;
+
     match client {
         OCPP1_6(client) => {
             // Do 1.6 specific operations
