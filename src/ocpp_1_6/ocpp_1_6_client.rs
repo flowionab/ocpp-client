@@ -54,7 +54,8 @@ pub struct OCPP1_6Client {
     response_channels: Arc<Mutex<BTreeMap<Uuid, oneshot::Sender<Result<Value, OCPP1_6Error>>>>>,
     request_senders: Arc<Mutex<BTreeMap<String, mpsc::Sender<RawOcpp1_6Call>>>>,
     pong_channels: Arc<Mutex<VecDeque<oneshot::Sender<()>>>>,
-    ping_sender: Sender<()>,
+    ping_sender: Arc<Mutex<Option<Sender<()>>>>,
+    disconnected_sender: Sender<()>,
     timeout: Duration
 }
 
@@ -74,8 +75,11 @@ impl OCPP1_6Client {
         let request_senders2 = request_senders.clone();
         let sink2 = sink.clone();
 
-        let (ping_sender, _) = tokio::sync::broadcast::channel(10);
+        let ping_sender = Arc::new(Mutex::new(Some(tokio::sync::broadcast::channel(10).0)));
         let ping_sender2 = ping_sender.clone();
+
+        let (disconnected_sender, _) = tokio::sync::broadcast::channel(1);
+        let disconnected_sender2 = disconnected_sender.clone();
 
         tokio::spawn(async move {
             stream
@@ -157,10 +161,13 @@ impl OCPP1_6Client {
 
                             }
                             Message::Ping(_) => {
-                                if ping_sender.receiver_count() > 0 {
-                                    if let Err(err) = ping_sender.send(()) {
-                                        println!("Error sending websocket ping: {:?}", err);
-                                    };
+                                let lock = ping_sender.lock().await;
+                                if let Some(ping_sender) = lock.as_ref() {
+                                    if ping_sender.receiver_count() > 0 {
+                                        if let Err(err) = ping_sender.send(()) {
+                                            println!("Error sending websocket ping: {:?}", err);
+                                        };
+                                    }
                                 }
                             }
                             Message::Pong(_) => {
@@ -175,6 +182,13 @@ impl OCPP1_6Client {
                     }
 
                 }).await?;
+
+            // Drop the senders to stop the receiving tasks
+            request_senders2.lock().await.clear();
+            ping_sender2.lock().await.take();
+
+            disconnected_sender2.send(()).ok();
+
             Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
         });
 
@@ -184,6 +198,7 @@ impl OCPP1_6Client {
             request_senders,
             pong_channels,
             ping_sender,
+            disconnected_sender,
             timeout: Duration::from_secs(5)
         }
     }
@@ -423,11 +438,25 @@ impl OCPP1_6Client {
     }
 
     pub async fn on_ping<F: FnMut(Self) -> FF + Send + Sync + 'static, FF: Future<Output=()> + Send + Sync>(&self, mut callback: F) {
-        let mut recv = self.ping_sender.subscribe();
+        let lock = self.ping_sender.lock().await;
+        if let Some(ping_sender) = lock.as_ref() {
+            let mut recv = ping_sender.subscribe();
+
+            let s = self.clone();
+            tokio::spawn(async move {
+                while let Ok(()) = recv.recv().await {
+                    callback(s.clone()).await;
+                }
+            });
+        }
+    }
+
+    pub async fn on_disconnect<F: FnMut(Self) -> FF + Send + Sync + 'static, FF: Future<Output=()> + Send + Sync>(&self, mut callback: F) {
+        let mut recv = self.disconnected_sender.subscribe();
 
         let s = self.clone();
         tokio::spawn(async move {
-            while let Ok(()) = recv.recv().await {
+            if let Ok(()) = recv.recv().await {
                 callback(s.clone()).await;
             }
         });
