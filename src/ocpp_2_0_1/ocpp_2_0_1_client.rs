@@ -91,6 +91,7 @@ pub struct OCPP2_0_1Client {
     request_senders: Arc<Mutex<BTreeMap<String, mpsc::Sender<RawOcpp2_0_1Call>>>>,
     pong_channels: Arc<Mutex<VecDeque<oneshot::Sender<()>>>>,
     ping_sender: Arc<Mutex<Option<Sender<()>>>>,
+    disconnected_sender: Sender<()>,
     timeout: Duration
 }
 
@@ -110,6 +111,9 @@ impl OCPP2_0_1Client {
         let ping_sender = Arc::new(Mutex::new(Some(tokio::sync::broadcast::channel(10).0)));
         let ping_sender2 = ping_sender.clone();
         let sink2 = sink.clone();
+
+        let (disconnected_sender, _) = tokio::sync::broadcast::channel(1);
+        let disconnected_sender2 = disconnected_sender.clone();
 
         tokio::spawn(async move {
             stream
@@ -218,6 +222,8 @@ impl OCPP2_0_1Client {
             request_senders2.lock().await.clear();
             ping_sender2.lock().await.take();
 
+            disconnected_sender2.send(()).ok();
+
             Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
         });
 
@@ -227,6 +233,7 @@ impl OCPP2_0_1Client {
             request_senders,
             pong_channels,
             ping_sender,
+            disconnected_sender,
             timeout: Duration::from_secs(5)
         }
     }
@@ -712,6 +719,17 @@ impl OCPP2_0_1Client {
                 }
             });
         }
+    }
+
+    pub async fn on_disconnect<F: FnMut(Self) -> FF + Send + Sync + 'static, FF: Future<Output=()> + Send + Sync>(&self, mut callback: F) {
+        let mut recv = self.disconnected_sender.subscribe();
+
+        let s = self.clone();
+        tokio::spawn(async move {
+            if let Ok(()) = recv.recv().await {
+                callback(s.clone()).await;
+            }
+        });
     }
 
     async fn handle_on_request<P: DeserializeOwned + Send + Sync, R: Serialize + Send + Sync, F: FnMut(P, Self) -> FF + Send + Sync + 'static, FF: Future<Output=Result<R, OCPP2_0_1Error>> + Send + Sync>(&self, mut callback: F, action: &'static str) {
