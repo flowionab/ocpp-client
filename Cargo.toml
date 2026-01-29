@@ -1,7 +1,7 @@
 [package]
 edition = '2021'
 name = "ocpp-client"
-version = "0.1.16"
+version = "0.1.17"
 description = "OCPP Client Implementation. Use this library to implement an OCPP charge point"
 repository = "https://github.com/flowionab/ocpp-client"
 license = "MIT OR Apache-2.0"
@@ -15,10 +15,10 @@ ocpp_2_0_1 = ["rust-ocpp/v2_0_1"]
 test = []
 
 [dependencies]
-rust-ocpp = { version = "2.0", default-features = false }
+rust-ocpp = { version = "3.0", default-features = false }
 tokio = { version = "1", features = ["sync", "rt", "time"] }
 futures = "0.3"
-tokio-tungstenite = { version = "0.24", features = ["rustls-tls-webpki-roots"] }
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
 url = "2.5"
 rustls = "0.23"
 serde = "1.0"
