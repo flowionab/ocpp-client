@@ -73,9 +73,8 @@ use serde_json::Value;
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, oneshot, mpsc};
 use tokio::sync::broadcast::Sender;
-use tokio::time::timeout;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
-use tokio_tungstenite::tungstenite::Message;
+use tokio_tungstenite::tungstenite::{Message, Utf8Bytes};
 use uuid::Uuid;
 use crate::ocpp_1_6::OCPP1_6Error;
 use crate::ocpp_2_0_1::OCPP2_0_1Error;
@@ -145,7 +144,7 @@ impl OCPP2_0_1Client {
                                                                         let error = OCPP1_6Error::new_not_implemented(&format!("Action '{}' is not implemented", action));
                                                                         let payload = serde_json::to_string(&RawOcpp2_0_1Error(4, call.1.to_string(), error.code().to_string(), error.description().to_string(), error.details().to_owned())).unwrap();
                                                                         let mut lock = sink.lock().await;
-                                                                        if let Err(err) = lock.send(Message::Text(payload)).await {
+                                                                        if let Err(err) = lock.send(Message::Text(Utf8Bytes::from(payload))).await {
                                                                             println!("Failed to send response: {:?}", err)
                                                                         }
                                                                     }
@@ -337,7 +336,7 @@ impl OCPP2_0_1Client {
     pub async fn send_ping(&self) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
         {
             let mut lock = self.sink.lock().await;
-            lock.send(Message::Ping(vec![])).await?;
+            lock.send(Message::Ping(vec![].into())).await?;
         }
 
         let (s, r) = oneshot::channel();
@@ -775,7 +774,7 @@ impl OCPP2_0_1Client {
         };
 
         let mut lock = self.sink.lock().await;
-        if let Err(err) = lock.send(Message::Text(payload)).await {
+        if let Err(err) = lock.send(Message::Text(Utf8Bytes::from(payload))).await {
             println!("Failed to send response: {:?}", err)
         }
     }
@@ -787,7 +786,7 @@ impl OCPP2_0_1Client {
 
         {
             let mut lock = self.sink.lock().await;
-            lock.send(Message::Text(serde_json::to_string(&call)?)).await?;
+            lock.send(Message::Text(Utf8Bytes::from(serde_json::to_string(&call)?))).await?;
         }
 
         let (s, r) = oneshot::channel();
