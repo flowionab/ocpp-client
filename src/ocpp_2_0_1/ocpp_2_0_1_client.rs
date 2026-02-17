@@ -73,6 +73,7 @@ use serde_json::Value;
 use tokio::net::TcpStream;
 use tokio::sync::{Mutex, oneshot, mpsc};
 use tokio::sync::broadcast::Sender;
+use tokio::time::timeout;
 use tokio_tungstenite::{MaybeTlsStream, WebSocketStream};
 use tokio_tungstenite::tungstenite::{Message, Utf8Bytes};
 use uuid::Uuid;
