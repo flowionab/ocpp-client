@@ -84,7 +84,7 @@ use crate::ocpp_2_0_1::raw_ocpp_2_0_1_error::RawOcpp2_0_1Error;
 use crate::ocpp_2_0_1::raw_ocpp_2_0_1_result::RawOcpp2_0_1Result;
 
 /// OCPP 2.0.1 client
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct OCPP2_0_1Client {
     sink: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
     response_channels: Arc<Mutex<BTreeMap<Uuid, oneshot::Sender<Result<Value, OCPP2_0_1Error>>>>>,

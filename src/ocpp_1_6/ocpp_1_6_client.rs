@@ -48,7 +48,7 @@ use crate::ocpp_1_6::raw_ocpp_1_6_error::RawOcpp1_6Error;
 use crate::ocpp_1_6::raw_ocpp_1_6_result::RawOcpp1_6Result;
 
 /// OCPP 1.6 client
-#[derive(Clone)]
+#[derive(Debug, Clone)]
 pub struct OCPP1_6Client {
     sink: Arc<Mutex<SplitSink<WebSocketStream<MaybeTlsStream<TcpStream>>, Message>>>,
     response_channels: Arc<Mutex<BTreeMap<Uuid, oneshot::Sender<Result<Value, OCPP1_6Error>>>>>,
