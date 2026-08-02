@@ -1,7 +1,7 @@
 [package]
 edition = '2024'
 name = "ocpp-client"
-version = "0.1.19"
+version = "1.0.0-alpha.1"
 description = "OCPP Client Implementation. Use this library to implement an OCPP charge point"
 repository = "https://github.com/flowionab/ocpp-client"
 license = "MIT OR Apache-2.0"
@@ -9,23 +9,42 @@ authors = ["Joatin Granlund <joatin@granlund.io>"]
 keywords = ["OCPP", "ChargePoint", "Client", "ocpp16", "ocpp201"]
 
 [features]
-default = ["ocpp_1_6", "ocpp_2_0_1"]
+default = ["std", "websocket", "ocpp_1_6", "ocpp_2_0_1"]
+# Pulls in std/alloc-only support. Forwards to rust-ocpp's own `std` feature, which gates
+# its validator/regex-based validation. Disable for no_std + alloc targets (embedded) -
+# the rust-ocpp side is no_std-capable now (see below), but src/client.rs still hard-depends
+# on tokio/async-trait unconditionally, so the crate as a whole isn't no_std yet.
+std = ["rust-ocpp/std"]
+# WebSocket transport. Implies `std`.
+websocket = ["std", "dep:tokio-tungstenite", "dep:futures", "dep:url", "dep:rustls", "dep:base64"]
 ocpp_1_6 = ["rust-ocpp/v1_6"]
 ocpp_2_0_1 = ["rust-ocpp/v2_0_1"]
+# rust-ocpp itself now has a real `wip_v2_1` feature (see below), but src/ocpp_2_1/ doesn't
+# exist in this crate yet - porting it is separate from this feature existing.
+ocpp_2_1 = ["rust-ocpp/wip_v2_1"]
 test = []
 
 [dependencies]
-rust-ocpp = { version = "3.0", default-features = false }
+# Forked from https://github.com/codelabsab/rust-ocpp to add no_std (alloc-only) support:
+# jsonschema/reqwest/hyper/tokio removed entirely, validator/regex made optional and gated
+# behind rust-ocpp's own `std` feature. See CLAUDE.md.
+rust-ocpp = { git = "https://github.com/flowionab/rust-ocpp", default-features = false }
+serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
+serde_json = { version = "1", default-features = false, features = ["alloc"] }
+uuid = { version = "1", default-features = false, features = ["v4"] }
+
+# The engine itself needs an async runtime and a way to write dyn-safe async traits,
+# regardless of which transport is enabled - not gated by "websocket".
 tokio = { version = "1", features = ["sync", "rt", "time"] }
-futures = "0.3"
-tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"] }
-url = "2.5"
-rustls = "0.23"
-serde = "1.0"
-serde_json = "1.0.120"
-uuid = { version = "1.10.0", features = ["v4"] }
-base64 = "0.22"
+async-trait = { version = "0.1" }
+
+tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"], optional = true }
+futures = { version = "0.3", optional = true }
+url = { version = "2.5", optional = true }
+rustls = { version = "0.23", optional = true }
+base64 = { version = "0.22", optional = true }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
+chrono = { version = "^0.4", default-features = false, features = ["now"] }
 

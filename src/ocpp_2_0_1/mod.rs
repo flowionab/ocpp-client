@@ -1,8 +1,8 @@
-mod ocpp_2_0_1_client;
-mod ocpp_2_0_1_error;
-mod raw_ocpp_2_0_1_call;
-mod raw_ocpp_2_0_1_error;
-mod raw_ocpp_2_0_1_result;
+mod actions;
+mod error;
 
-pub use ocpp_2_0_1_client::OCPP2_0_1Client;
-pub use ocpp_2_0_1_error::OCPP2_0_1Error;
+pub use actions::*;
+pub use error::OCPP2_0_1Error;
+
+/// OCPP 2.0.1 client - a [`crate::Client`] carrying 2.0.1's error type.
+pub type OCPP2_0_1Client = crate::Client<OCPP2_0_1Error>;

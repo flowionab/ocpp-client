@@ -1,8 +1,8 @@
-mod ocpp_1_6_client;
-mod ocpp_1_6_error;
-mod raw_ocpp_1_6_call;
-mod raw_ocpp_1_6_result;
-mod raw_ocpp_1_6_error;
+mod actions;
+mod error;
 
-pub use ocpp_1_6_client::OCPP1_6Client;
-pub use ocpp_1_6_error::OCPP1_6Error;
+pub use actions::*;
+pub use error::OCPP1_6Error;
+
+/// OCPP 1.6 client - a [`crate::Client`] carrying 1.6's error type.
+pub type OCPP1_6Client = crate::Client<OCPP1_6Error>;
