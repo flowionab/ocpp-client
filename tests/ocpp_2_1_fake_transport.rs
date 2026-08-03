@@ -1,23 +1,23 @@
-//! Same coverage as tests/ocpp_1_6_fake_transport.rs, for OCPP 2.0.1 - proves the generic
-//! `Client<E>` engine works unmodified for a second version's error type.
+//! Same coverage as tests/ocpp_2_0_1_fake_transport.rs, for OCPP 2.1 - proves the generic
+//! `Client<E>` engine works unmodified for a third version's error type.
 mod common;
 
 use common::fake_transport_pair;
-use ocpp_client::ocpp_2_0_1::{OCPP2_0_1Client, OCPP2_0_1Error};
+use ocpp_client::ocpp_2_1::{OCPP2_1Client, OCPP2_1Error};
 use ocpp_client::{
     Client, ClientError, ProtocolError, TokioExecutor, TokioTimer, TransportEvent, TransportSink,
     TransportStream,
 };
-use rust_ocpp::v2_0_1::enumerations::reset_enum_type::ResetEnumType;
-use rust_ocpp::v2_0_1::enumerations::reset_status_enum_type::ResetStatusEnumType;
-use rust_ocpp::v2_0_1::messages::heartbeat::{HeartbeatRequest, HeartbeatResponse};
-use rust_ocpp::v2_0_1::messages::reset::{ResetRequest, ResetResponse};
+use rust_ocpp::v2_1::messages::heartbeat::{HeartbeatRequest, HeartbeatResponse};
+use rust_ocpp::v2_1::messages::reset::{
+    ResetEnumType, ResetRequest, ResetResponse, ResetStatusEnumType,
+};
 use serde_json::{Value, json};
 use std::time::Duration;
 
-fn client_pair(timeout: Duration) -> (OCPP2_0_1Client, common::FakeSink, common::FakeSource) {
+fn client_pair(timeout: Duration) -> (OCPP2_1Client, common::FakeSink, common::FakeSource) {
     let ((client_sink, client_source), (peer_sink, peer_source)) = fake_transport_pair();
-    let client: OCPP2_0_1Client = Client::from_transport(
+    let client: OCPP2_1Client = Client::from_transport(
         Box::new(client_sink),
         Box::new(client_source),
         timeout,
@@ -38,7 +38,11 @@ async fn recv_frame(peer_source: &mut common::FakeSource) -> Value {
 async fn call_resolves_on_matching_result() {
     let (client, mut peer_sink, mut peer_source) = client_pair(Duration::from_secs(5));
 
-    let call = tokio::spawn(async move { client.send_heartbeat(HeartbeatRequest {}).await });
+    let call = tokio::spawn(async move {
+        client
+            .send_heartbeat(HeartbeatRequest { custom_data: None })
+            .await
+    });
 
     let frame = recv_frame(&mut peer_source).await;
     assert_eq!(frame[0], 2);
@@ -46,6 +50,7 @@ async fn call_resolves_on_matching_result() {
     let message_id = frame[1].as_str().unwrap().to_string();
 
     let response = HeartbeatResponse {
+        custom_data: None,
         current_time: chrono::Utc::now(),
     };
     let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
@@ -59,7 +64,11 @@ async fn call_resolves_on_matching_result() {
 async fn call_surfaces_protocol_error() {
     let (client, mut peer_sink, mut peer_source) = client_pair(Duration::from_secs(5));
 
-    let call = tokio::spawn(async move { client.send_heartbeat(HeartbeatRequest {}).await });
+    let call = tokio::spawn(async move {
+        client
+            .send_heartbeat(HeartbeatRequest { custom_data: None })
+            .await
+    });
 
     let frame = recv_frame(&mut peer_source).await;
     let message_id = frame[1].as_str().unwrap().to_string();
@@ -83,7 +92,7 @@ async fn call_times_out_without_a_response() {
     let (client, _peer_sink, _peer_source) = client_pair(Duration::from_millis(50));
 
     let err = client
-        .send_heartbeat(HeartbeatRequest {})
+        .send_heartbeat(HeartbeatRequest { custom_data: None })
         .await
         .unwrap_err();
     assert!(matches!(err, ClientError::Timeout));
@@ -96,6 +105,7 @@ async fn on_action_answers_a_call_from_the_peer() {
     client
         .on_reset(|_req, _client| async move {
             Ok(ResetResponse {
+                custom_data: None,
                 status: ResetStatusEnumType::Accepted,
                 status_info: None,
             })
@@ -103,7 +113,8 @@ async fn on_action_answers_a_call_from_the_peer() {
         .await;
 
     let request = ResetRequest {
-        request_type: ResetEnumType::Immediate,
+        custom_data: None,
+        reset_type: ResetEnumType::Immediate,
         evse_id: None,
     };
     let call_frame = serde_json::to_string(&json!([2, "req-1", "Reset", request])).unwrap();
@@ -112,7 +123,7 @@ async fn on_action_answers_a_call_from_the_peer() {
     let response = recv_frame(&mut peer_source).await;
     assert_eq!(response[0], 3);
     assert_eq!(response[1], "req-1");
-    assert_eq!(response[2]["status"], "Accepted");
+    assert_eq!(response[2]["status"], "accepted");
 }
 
 #[tokio::test]
@@ -127,5 +138,5 @@ async fn unregistered_action_gets_not_implemented() {
     let response = recv_frame(&mut peer_source).await;
     assert_eq!(response[0], 4);
     assert_eq!(response[1], "req-2");
-    assert_eq!(response[2], OCPP2_0_1Error::not_implemented("Reset").code());
+    assert_eq!(response[2], OCPP2_1Error::not_implemented("Reset").code());
 }

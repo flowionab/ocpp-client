@@ -1,6 +1,8 @@
 use crate::error::ProtocolError;
+use alloc::format;
+use alloc::string::{String, ToString};
+use core::fmt;
 use serde_json::{Value, json};
-use std::fmt;
 
 macro_rules! define_error {
     ($($variant:ident => $code:literal),+ $(,)?) => {
@@ -68,4 +70,4 @@ impl fmt::Display for OCPP1_6Error {
     }
 }
 
-impl std::error::Error for OCPP1_6Error {}
+impl core::error::Error for OCPP1_6Error {}

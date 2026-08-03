@@ -2,6 +2,7 @@ use crate::action::Action;
 use crate::error::ClientError;
 use crate::ocpp_1_6::OCPP1_6Client;
 use crate::ocpp_1_6::error::OCPP1_6Error;
+use core::future::Future;
 use rust_ocpp::v1_6::messages::authorize::{AuthorizeRequest, AuthorizeResponse};
 use rust_ocpp::v1_6::messages::boot_notification::{
     BootNotificationRequest, BootNotificationResponse,
@@ -64,7 +65,6 @@ use rust_ocpp::v1_6::messages::unlock_connector::{
     UnlockConnectorRequest, UnlockConnectorResponse,
 };
 use rust_ocpp::v1_6::messages::update_firmware::{UpdateFirmwareRequest, UpdateFirmwareResponse};
-use std::future::Future;
 
 /// Declares one OCPP 1.6 action: a zero-sized marker type implementing [`Action`], plus
 /// `send_x`/`on_x`/`wait_for_x` convenience methods on [`OCPP1_6Client`] that just call the

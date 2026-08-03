@@ -1,4 +1,6 @@
 use ocpp_client::{TransportError, TransportEvent, TransportSink, TransportStream};
+use std::future::Future;
+use std::pin::Pin;
 use tokio::sync::mpsc;
 
 /// An in-memory transport pair, so tests can drive `Client` without any real networking.
@@ -7,35 +9,51 @@ use tokio::sync::mpsc;
 pub struct FakeSink(mpsc::UnboundedSender<TransportEvent>);
 pub struct FakeSource(mpsc::UnboundedReceiver<TransportEvent>);
 
-#[async_trait::async_trait]
 impl TransportSink for FakeSink {
-    async fn send(&mut self, frame: String) -> Result<(), TransportError> {
-        self.0
-            .send(TransportEvent::Frame(frame))
-            .map_err(|e| Box::new(e) as TransportError)
+    fn send<'a>(
+        &'a mut self,
+        frame: String,
+    ) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.0
+                .send(TransportEvent::Frame(frame))
+                .map_err(|e| Box::new(e) as TransportError)
+        })
     }
 
-    async fn ping(&mut self) -> Result<(), TransportError> {
-        self.0
-            .send(TransportEvent::Ping)
-            .map_err(|e| Box::new(e) as TransportError)
+    fn ping<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.0
+                .send(TransportEvent::Ping)
+                .map_err(|e| Box::new(e) as TransportError)
+        })
     }
 
-    async fn pong(&mut self) -> Result<(), TransportError> {
-        self.0
-            .send(TransportEvent::Pong)
-            .map_err(|e| Box::new(e) as TransportError)
+    fn pong<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>> {
+        Box::pin(async move {
+            self.0
+                .send(TransportEvent::Pong)
+                .map_err(|e| Box::new(e) as TransportError)
+        })
     }
 
-    async fn close(&mut self) -> Result<(), TransportError> {
-        Ok(())
+    fn close<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>> {
+        Box::pin(async move { Ok(()) })
     }
 }
 
-#[async_trait::async_trait]
 impl TransportStream for FakeSource {
-    async fn recv(&mut self) -> Result<Option<TransportEvent>, TransportError> {
-        Ok(self.0.recv().await)
+    fn recv<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<Option<TransportEvent>, TransportError>> + Send + 'a>>
+    {
+        Box::pin(async move { Ok(self.0.recv().await) })
     }
 }
 

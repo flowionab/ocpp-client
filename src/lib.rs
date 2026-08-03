@@ -12,6 +12,8 @@ mod action;
 mod client;
 mod envelope;
 mod error;
+pub mod runtime;
+mod sync;
 mod transport;
 
 #[cfg(feature = "websocket")]
@@ -23,12 +25,19 @@ pub mod ocpp_1_6;
 #[cfg(feature = "ocpp_2_0_1")]
 pub mod ocpp_2_0_1;
 
+#[cfg(feature = "ocpp_2_1")]
+pub mod ocpp_2_1;
+
 pub use rust_ocpp;
 
 pub use action::Action;
 pub use client::Client;
 pub use error::{ClientError, ProtocolError};
+pub use runtime::{Elapsed, Executor, Timer};
 pub use transport::{TransportError, TransportEvent, TransportSink, TransportStream};
+
+#[cfg(feature = "tokio-runtime")]
+pub use runtime::tokio::{TokioExecutor, TokioTimer};
 
 #[cfg(feature = "websocket")]
 pub use connect::ConnectOptions;
@@ -38,3 +47,6 @@ pub use connect::connect_1_6;
 
 #[cfg(all(feature = "websocket", feature = "ocpp_2_0_1"))]
 pub use connect::connect_2_0_1;
+
+#[cfg(all(feature = "websocket", feature = "ocpp_2_1"))]
+pub use connect::connect_2_1;

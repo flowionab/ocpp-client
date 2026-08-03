@@ -6,7 +6,7 @@ mod common;
 
 use common::fake_transport_pair;
 use ocpp_client::ocpp_1_6::OCPP1_6Client;
-use ocpp_client::{Client, TransportSink};
+use ocpp_client::{Client, TokioExecutor, TokioTimer, TransportSink};
 use rust_ocpp::v1_6::messages::reset::{ResetRequest, ResetResponse};
 use rust_ocpp::v1_6::types::{ResetRequestStatus, ResetResponseStatus};
 use serde_json::json;
@@ -19,6 +19,8 @@ async fn wait_for_reset_returns_the_parsed_request() {
         Box::new(client_sink),
         Box::new(client_source),
         Duration::from_secs(5),
+        Box::new(TokioExecutor),
+        Box::new(TokioTimer),
     );
 
     let call_frame =
