@@ -41,4 +41,4 @@ impl<E: ProtocolError> core::fmt::Display for ClientError<E> {
     }
 }
 
-impl<E: ProtocolError> std::error::Error for ClientError<E> {}
+impl<E: ProtocolError> core::error::Error for ClientError<E> {}

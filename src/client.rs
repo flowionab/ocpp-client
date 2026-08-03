@@ -3,32 +3,37 @@ use crate::envelope::{
     MESSAGE_TYPE_CALL, MESSAGE_TYPE_ERROR, MESSAGE_TYPE_RESULT, RawCall, RawError, RawResult,
 };
 use crate::error::{ClientError, ProtocolError};
+use crate::runtime::{Executor, Timer, with_timeout};
+use crate::sync::{BroadcastRegistry, Chan, OneShot, SharedMutex};
 use crate::transport::{TransportEvent, TransportSink, TransportStream};
+use alloc::borrow::ToOwned;
+use alloc::boxed::Box;
+use alloc::collections::{BTreeMap, VecDeque};
+use alloc::format;
+use alloc::string::{String, ToString};
+use alloc::sync::Arc;
+use core::future::Future;
+use core::time::Duration;
 use serde::Serialize;
 use serde::de::DeserializeOwned;
 use serde_json::Value;
-use std::collections::{BTreeMap, VecDeque};
-use std::future::Future;
-use std::sync::Arc;
-use std::time::Duration;
-use tokio::sync::broadcast::Sender as BroadcastSender;
-use tokio::sync::{Mutex, mpsc, oneshot};
-use tokio::time::timeout;
 use uuid::Uuid;
 
-type PendingResponses<E> = Arc<Mutex<BTreeMap<Uuid, oneshot::Sender<Result<Value, E>>>>>;
-type RequestSenders = Arc<Mutex<BTreeMap<String, mpsc::Sender<(String, Value)>>>>;
-type PongWaiters = Arc<Mutex<VecDeque<oneshot::Sender<()>>>>;
+type PendingResponses<E> = Arc<SharedMutex<BTreeMap<Uuid, OneShot<Result<Value, E>>>>>;
+type RequestSenders = Arc<SharedMutex<BTreeMap<String, Chan<(String, Value)>>>>;
+type PongWaiters = Arc<SharedMutex<VecDeque<OneShot<()>>>>;
 
 /// The OCPP client engine, generic over one version's protocol error type. `OCPP1_6Client`
 /// and `OCPP2_0_1Client` are just `Client<OCPP1_6Error>` / `Client<OCPP2_0_1Error>` - the
 /// dispatch/timeout/error machinery below is written once and shared by every version.
 pub struct Client<E: ProtocolError> {
-    sink: Arc<Mutex<Box<dyn TransportSink>>>,
+    sink: Arc<SharedMutex<Box<dyn TransportSink>>>,
     pending_responses: PendingResponses<E>,
     request_senders: RequestSenders,
     pong_waiters: PongWaiters,
-    ping_sender: BroadcastSender<()>,
+    ping_registry: Arc<BroadcastRegistry>,
+    executor: Arc<dyn Executor>,
+    timer: Arc<dyn Timer>,
     timeout: Duration,
 }
 
@@ -39,7 +44,9 @@ impl<E: ProtocolError> Clone for Client<E> {
             pending_responses: self.pending_responses.clone(),
             request_senders: self.request_senders.clone(),
             pong_waiters: self.pong_waiters.clone(),
-            ping_sender: self.ping_sender.clone(),
+            ping_registry: self.ping_registry.clone(),
+            executor: self.executor.clone(),
+            timer: self.timer.clone(),
             timeout: self.timeout,
         }
     }
@@ -49,25 +56,31 @@ impl<E: ProtocolError> Client<E> {
     /// Build a client over any transport - the WebSocket adapter used by `connect_1_6` is
     /// just one implementation of `TransportSink`/`TransportStream`; tests and non-WebSocket
     /// transports (an embedded framed link, an in-memory fake for unit tests) construct a
-    /// client the same way.
+    /// client the same way. `executor`/`timer` are likewise pluggable: the `tokio-runtime`
+    /// feature provides `TokioExecutor`/`TokioTimer`; embedded users supply their own (e.g.
+    /// backed by `embassy-executor`/`embassy-time`).
     pub fn from_transport(
         sink: Box<dyn TransportSink>,
         mut stream: Box<dyn TransportStream>,
         timeout: Duration,
+        executor: Box<dyn Executor>,
+        timer: Box<dyn Timer>,
     ) -> Self {
-        let sink = Arc::new(Mutex::new(sink));
-        let pending_responses: PendingResponses<E> = Arc::new(Mutex::new(BTreeMap::new()));
-        let request_senders: RequestSenders = Arc::new(Mutex::new(BTreeMap::new()));
-        let pong_waiters: PongWaiters = Arc::new(Mutex::new(VecDeque::new()));
-        let (ping_sender, _) = tokio::sync::broadcast::channel(10);
+        let sink = Arc::new(SharedMutex::new(sink));
+        let pending_responses: PendingResponses<E> = Arc::new(SharedMutex::new(BTreeMap::new()));
+        let request_senders: RequestSenders = Arc::new(SharedMutex::new(BTreeMap::new()));
+        let pong_waiters: PongWaiters = Arc::new(SharedMutex::new(VecDeque::new()));
+        let ping_registry = Arc::new(BroadcastRegistry::new());
+        let executor: Arc<dyn Executor> = Arc::from(executor);
+        let timer: Arc<dyn Timer> = Arc::from(timer);
 
         let read_pending_responses = pending_responses.clone();
         let read_request_senders = request_senders.clone();
         let read_pong_waiters = pong_waiters.clone();
-        let read_ping_sender = ping_sender.clone();
+        let read_ping_registry = ping_registry.clone();
         let read_sink = sink.clone();
 
-        tokio::spawn(async move {
+        executor.spawn(Box::pin(async move {
             loop {
                 match stream.recv().await {
                     Ok(Some(TransportEvent::Frame(frame))) => {
@@ -80,27 +93,29 @@ impl<E: ProtocolError> Client<E> {
                         .await;
                     }
                     Ok(Some(TransportEvent::Ping)) => {
-                        let _ = read_ping_sender.send(());
+                        read_ping_registry.notify_all().await;
                         let mut lock = read_sink.lock().await;
                         let _ = lock.pong().await;
                     }
                     Ok(Some(TransportEvent::Pong)) => {
                         let mut lock = read_pong_waiters.lock().await;
                         if let Some(waiter) = lock.pop_front() {
-                            let _ = waiter.send(());
+                            waiter.send(());
                         }
                     }
                     Ok(None) | Err(_) => break,
                 }
             }
-        });
+        }));
 
         Self {
             sink,
             pending_responses,
             request_senders,
             pong_waiters,
-            ping_sender,
+            ping_registry,
+            executor,
+            timer,
             timeout,
         }
     }
@@ -122,15 +137,16 @@ impl<E: ProtocolError> Client<E> {
         F: FnMut(A::Request, Self) -> FF + Send + Sync + 'static,
         FF: Future<Output = Result<A::Response, E>> + Send,
     {
-        let (sender, mut recv) = mpsc::channel(1000);
+        let chan: Chan<(String, Value)> = Chan::new();
         {
             let mut lock = self.request_senders.lock().await;
-            lock.insert(A::NAME.to_string(), sender);
+            lock.insert(A::NAME.to_string(), chan.clone());
         }
 
         let client = self.clone();
-        tokio::spawn(async move {
-            while let Some((message_id, payload)) = recv.recv().await {
+        self.executor.spawn(Box::pin(async move {
+            loop {
+                let (message_id, payload) = chan.recv().await;
                 match serde_json::from_value::<A::Request>(payload) {
                     Ok(request) => {
                         let response = callback(request, client.clone()).await;
@@ -145,7 +161,7 @@ impl<E: ProtocolError> Client<E> {
                     }
                 }
             }
-        });
+        }));
     }
 
     /// Wait for exactly one CALL for action `A` (bounded by the client's timeout), answer
@@ -157,39 +173,38 @@ impl<E: ProtocolError> Client<E> {
         F: FnMut(A::Request, Self) -> FF + Send + Sync + 'static,
         FF: Future<Output = Result<A::Response, E>> + Send,
     {
-        let (sender, mut recv) = mpsc::channel(1000);
+        let chan: Chan<(String, Value)> = Chan::new();
         {
             let mut lock = self.request_senders.lock().await;
-            lock.insert(A::NAME.to_string(), sender);
+            lock.insert(A::NAME.to_string(), chan.clone());
         }
 
-        match timeout(self.timeout, recv.recv()).await {
-            Ok(Some((message_id, payload))) => {
+        match with_timeout(self.timer.as_ref(), self.timeout, chan.recv()).await {
+            Ok((message_id, payload)) => {
                 let for_callback: A::Request =
                     serde_json::from_value(payload.clone()).map_err(ClientError::Decode)?;
                 let response = callback(for_callback, self.clone()).await;
                 self.do_send_response(response, &message_id).await;
                 serde_json::from_value(payload).map_err(ClientError::Decode)
             }
-            Ok(None) => Err(ClientError::Closed),
             Err(_) => Err(ClientError::Timeout),
         }
     }
 
     pub async fn send_ping(&self) -> Result<(), ClientError<E>> {
-        let (sender, receiver) = oneshot::channel();
+        let waiter = OneShot::new();
         {
             let mut lock = self.pong_waiters.lock().await;
-            lock.push_back(sender);
+            lock.push_back(waiter.clone());
         }
         {
             let mut lock = self.sink.lock().await;
             lock.ping().await.map_err(ClientError::Transport)?;
         }
-        timeout(self.timeout, receiver)
+        with_timeout(self.timer.as_ref(), self.timeout, waiter.wait())
             .await
-            .map_err(|_| ClientError::Timeout)?
-            .map_err(|_| ClientError::Closed)
+            .map(|_| ())
+            .map_err(|_| ClientError::Timeout)
     }
 
     pub async fn on_ping<
@@ -199,13 +214,14 @@ impl<E: ProtocolError> Client<E> {
         &self,
         mut callback: F,
     ) {
-        let mut recv = self.ping_sender.subscribe();
+        let signal = self.ping_registry.subscribe().await;
         let client = self.clone();
-        tokio::spawn(async move {
-            while recv.recv().await.is_ok() {
+        self.executor.spawn(Box::pin(async move {
+            loop {
+                signal.wait().await;
                 callback(client.clone()).await;
             }
-        });
+        }));
     }
 
     pub async fn disconnect(&self) -> Result<(), ClientError<E>> {
@@ -228,10 +244,10 @@ impl<E: ProtocolError> Client<E> {
         );
         let frame = serde_json::to_string(&call).map_err(ClientError::Decode)?;
 
-        let (sender, receiver) = oneshot::channel();
+        let waiter = OneShot::new();
         {
             let mut lock = self.pending_responses.lock().await;
-            lock.insert(message_id, sender);
+            lock.insert(message_id, waiter.clone());
         }
 
         {
@@ -239,10 +255,9 @@ impl<E: ProtocolError> Client<E> {
             lock.send(frame).await.map_err(ClientError::Transport)?;
         }
 
-        let result = timeout(self.timeout, receiver)
+        let result = with_timeout(self.timer.as_ref(), self.timeout, waiter.wait())
             .await
-            .map_err(|_| ClientError::Timeout)?
-            .map_err(|_| ClientError::Closed)?;
+            .map_err(|_| ClientError::Timeout)?;
 
         match result {
             Ok(value) => serde_json::from_value(value).map_err(ClientError::Decode),
@@ -272,43 +287,52 @@ impl<E: ProtocolError> Client<E> {
         match frame {
             Ok(frame) => {
                 let mut lock = self.sink.lock().await;
-                if let Err(err) = lock.send(frame).await {
-                    eprintln!("ocpp-client: failed to send response: {err}");
+                if let Err(_err) = lock.send(frame).await {
+                    #[cfg(feature = "std")]
+                    std::eprintln!("ocpp-client: failed to send response: {_err}");
                 }
             }
-            Err(err) => eprintln!("ocpp-client: failed to encode response: {err}"),
+            Err(_err) => {
+                #[cfg(feature = "std")]
+                std::eprintln!("ocpp-client: failed to encode response: {_err}");
+            }
         }
     }
 }
 
-fn log_send_error(err: serde_json::Error) {
-    eprintln!("ocpp-client: failed to encode response payload: {err}");
+fn log_send_error(_err: serde_json::Error) {
+    #[cfg(feature = "std")]
+    std::eprintln!("ocpp-client: failed to encode response payload: {_err}");
 }
 
 async fn handle_frame<E: ProtocolError>(
     frame: &str,
     pending_responses: &PendingResponses<E>,
     request_senders: &RequestSenders,
-    sink: &Arc<Mutex<Box<dyn TransportSink>>>,
+    sink: &Arc<SharedMutex<Box<dyn TransportSink>>>,
 ) {
     let value: Value = match serde_json::from_str(frame) {
         Ok(v) => v,
-        Err(err) => {
-            eprintln!("ocpp-client: received malformed frame: {err}");
+        Err(_err) => {
+            #[cfg(feature = "std")]
+            std::eprintln!("ocpp-client: received malformed frame: {_err}");
             return;
         }
     };
 
     let Value::Array(items) = value else {
-        eprintln!("ocpp-client: a message should be a JSON array");
+        #[cfg(feature = "std")]
+        std::eprintln!("ocpp-client: a message should be a JSON array");
         return;
     };
     let Some(Value::Number(message_type)) = items.first() else {
-        eprintln!("ocpp-client: missing message type id");
+        #[cfg(feature = "std")]
+        std::eprintln!("ocpp-client: missing message type id");
         return;
     };
     let Some(message_type) = message_type.as_u64() else {
-        eprintln!("ocpp-client: message type id must be an integer");
+        #[cfg(feature = "std")]
+        std::eprintln!("ocpp-client: message type id must be an integer");
         return;
     };
 
@@ -316,8 +340,9 @@ async fn handle_frame<E: ProtocolError>(
         MESSAGE_TYPE_CALL => {
             let call: RawCall = match serde_json::from_str(frame) {
                 Ok(c) => c,
-                Err(err) => {
-                    eprintln!("ocpp-client: failed to parse CALL: {err}");
+                Err(_err) => {
+                    #[cfg(feature = "std")]
+                    std::eprintln!("ocpp-client: failed to parse CALL: {_err}");
                     return;
                 }
             };
@@ -328,7 +353,7 @@ async fn handle_frame<E: ProtocolError>(
             };
             match sender {
                 Some(sender) => {
-                    let _ = sender.send((call.1, call.3)).await;
+                    sender.send((call.1, call.3)).await;
                 }
                 None => {
                     let error =
@@ -350,8 +375,9 @@ async fn handle_frame<E: ProtocolError>(
         MESSAGE_TYPE_RESULT => {
             let result: RawResult = match serde_json::from_str(frame) {
                 Ok(r) => r,
-                Err(err) => {
-                    eprintln!("ocpp-client: failed to parse CALLRESULT: {err}");
+                Err(_err) => {
+                    #[cfg(feature = "std")]
+                    std::eprintln!("ocpp-client: failed to parse CALLRESULT: {_err}");
                     return;
                 }
             };
@@ -360,14 +386,15 @@ async fn handle_frame<E: ProtocolError>(
             };
             let mut lock = pending_responses.lock().await;
             if let Some(sender) = lock.remove(&id) {
-                let _ = sender.send(Ok(result.2));
+                sender.send(Ok(result.2));
             }
         }
         MESSAGE_TYPE_ERROR => {
             let error: RawError = match serde_json::from_str(frame) {
                 Ok(e) => e,
-                Err(err) => {
-                    eprintln!("ocpp-client: failed to parse CALLERROR: {err}");
+                Err(_err) => {
+                    #[cfg(feature = "std")]
+                    std::eprintln!("ocpp-client: failed to parse CALLERROR: {_err}");
                     return;
                 }
             };
@@ -376,9 +403,13 @@ async fn handle_frame<E: ProtocolError>(
             };
             let mut lock = pending_responses.lock().await;
             if let Some(sender) = lock.remove(&id) {
-                let _ = sender.send(Err(E::from_wire(&error.2, &error.3, error.4)));
+                sender.send(Err(E::from_wire(&error.2, &error.3, error.4)));
             }
         }
-        other => eprintln!("ocpp-client: unknown message type id {other}"),
+        #[allow(unused_variables)]
+        other => {
+            #[cfg(feature = "std")]
+            std::eprintln!("ocpp-client: unknown message type id {other}");
+        }
     }
 }

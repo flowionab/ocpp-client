@@ -29,7 +29,13 @@ pub async fn connect_1_6(
         .unwrap_or(DEFAULT_TIMEOUT);
     let (stream, _protocol) = setup_socket(address, "ocpp1.6", options).await?;
     let (sink, source) = crate::transport::websocket::split(stream);
-    Ok(crate::Client::from_transport(sink, source, timeout))
+    Ok(crate::Client::from_transport(
+        sink,
+        source,
+        timeout,
+        Box::new(crate::runtime::tokio::TokioExecutor),
+        Box::new(crate::runtime::tokio::TokioTimer),
+    ))
 }
 
 /// Connect to an OCPP 2.0.1 server over WebSocket.
@@ -44,7 +50,34 @@ pub async fn connect_2_0_1(
         .unwrap_or(DEFAULT_TIMEOUT);
     let (stream, _protocol) = setup_socket(address, "ocpp2.0.1", options).await?;
     let (sink, source) = crate::transport::websocket::split(stream);
-    Ok(crate::Client::from_transport(sink, source, timeout))
+    Ok(crate::Client::from_transport(
+        sink,
+        source,
+        timeout,
+        Box::new(crate::runtime::tokio::TokioExecutor),
+        Box::new(crate::runtime::tokio::TokioTimer),
+    ))
+}
+
+/// Connect to an OCPP 2.1 server over WebSocket.
+#[cfg(feature = "ocpp_2_1")]
+pub async fn connect_2_1(
+    address: &str,
+    options: Option<ConnectOptions<'_>>,
+) -> Result<crate::ocpp_2_1::OCPP2_1Client, Box<dyn std::error::Error + Send + Sync>> {
+    let timeout = options
+        .as_ref()
+        .and_then(|o| o.timeout)
+        .unwrap_or(DEFAULT_TIMEOUT);
+    let (stream, _protocol) = setup_socket(address, "ocpp2.1", options).await?;
+    let (sink, source) = crate::transport::websocket::split(stream);
+    Ok(crate::Client::from_transport(
+        sink,
+        source,
+        timeout,
+        Box::new(crate::runtime::tokio::TokioExecutor),
+        Box::new(crate::runtime::tokio::TokioTimer),
+    ))
 }
 
 async fn setup_socket(

@@ -9,12 +9,19 @@ layer only, not charging logic or hardware control. It's mid-rewrite (`1.0.0-alp
 per-version, tokio-hardwired design (see git history before this version bump) to a single generic engine
 shared by every OCPP version, with a transport abstraction so WebSocket isn't the only option long-term.
 
-## Status: 1.6 + 2.0.1, WebSocket only, std only
+## Status: 1.6 + 2.0.1 + 2.1, WebSocket only, no_std+alloc capable
 
-- **OCPP 1.6 and 2.0.1** are both implemented and tested end to end, both in `default` features.
-  **2.1 is not ported yet** — there is no `src/ocpp_2_1/` even though the `ocpp_2_1` Cargo feature exists.
-  Note the fork's own `Cargo.toml` says `wip_v2_1` is "not quite ready for use yet" upstream, so check that
-  module's state before porting it, not just its feature-flag availability.
+- **OCPP 1.6, 2.0.1, and 2.1** are all implemented and tested end to end, all three in `default` features.
+  2.1 mirrors `src/ocpp_2_0_1/` exactly (`src/ocpp_2_1/{mod,error,actions}.rs`, `OCPP2_1Client`,
+  `connect_2_1()`) - `OCPP2_1Error` reuses the same RPC framework error codes as `OCPP2_0_1Error` (OCPP-J's
+  envelope/error-code set didn't change between 2.0.1 and 2.1). One action is missing:
+  **`NotifyReport` has no `ocpp_2_1_action!` entry** because `rust-ocpp`'s
+  `wip_v2_1::messages::notify_report` module is still an empty file upstream (confirmed by reading the
+  fork's checked-out source, not just its feature flag - the same trap the crate's `Cargo.toml` used to warn
+  about before this was ported). Add the `NotifyReportRequest`/`NotifyReportResponse` macro invocation once
+  that lands upstream; every other 2.1 action (85 total minus `NotifyReport`) is wired up. `rust-ocpp`'s
+  `Cargo.toml` still calls `wip_v2_1` "not quite ready for use yet," but in practice only that one action is
+  actually blocked - re-verify against the fork's current `src/v2_1/messages/` if bumping the dependency.
 - **WebSocket is the only transport.** The engine (`Client<E>`) is transport-agnostic via the `Transport{Sink,Stream}`
   traits, but no second transport (e.g. an embedded framed link) exists yet.
 - **The `rust-ocpp` dependency is a fork**, not the crates.io release: `rust-ocpp = { git =
@@ -28,12 +35,36 @@ shared by every OCPP version, with a transport abstraction so WebSocket isn't th
   real, working `wip_v2_1` feature (unlike the crates.io release, where `v2_1`'s Cargo feature is commented
   out even though the module source exists). Our own `std` Cargo feature now forwards to `rust-ocpp/std`.
   If bumping this dependency, re-verify with `cargo tree` that none of the removed deps have crept back in.
-- **`no_std` for this crate as a whole is still not done**, even though the `rust-ocpp` blocker is cleared.
-  `src/client.rs` uses `tokio::sync` and `async-trait` **unconditionally**, regardless of the `std` feature -
-  the client engine still hard-depends on an async runtime. Don't treat
-  `--no-default-features --features ocpp_1_6` as a working no_std build; it isn't yet. Getting there needs an
-  async-runtime-agnostic replacement for `tokio::sync::{Mutex,mpsc,oneshot,broadcast}` and `tokio::spawn` in
-  `client.rs` (e.g. swappable behind a feature, with an embassy-backed implementation for the embedded side).
+- **`no_std`+`alloc` works now.** `src/client.rs` no longer hard-depends on tokio or `async-trait`.
+  `cargo build --lib --no-default-features --features ocpp_1_6` (or `ocpp_2_0_1`) compiles the engine with
+  `std` off entirely - that's the standing proof this stays true; re-run it after touching `client.rs`,
+  `transport.rs`, `error.rs`, or either per-version `error.rs`/`actions.rs`, all of which had std-only leaks
+  (`std::error::Error`, `std::fmt`, `std::future::Future`, bare `String`/`format!`) fixed to their
+  `core`/`alloc` equivalents as part of this work.
+  - **Task spawning and timeouts are behind two small dyn-safe traits**, `Executor` and `Timer`
+    (`src/runtime.rs`), the same "boxed trait object instead of a generic parameter" trick
+    `TransportSink`/`TransportStream` already used - so `Client<E>` stays single-generic; only
+    `Client::from_transport` takes `Box<dyn Executor>`/`Box<dyn Timer>` alongside the transport. Request/ping
+    timeouts go through `runtime::with_timeout`, which races the caller's future against `Timer::delay` by
+    hand (`core::future::poll_fn`) instead of depending on `futures::select`.
+  - **`tokio-runtime` feature** (implied by `websocket`, which needs a tokio runtime for `tokio-tungstenite`
+    regardless) provides `TokioExecutor`/`TokioTimer`, the impls `connect_1_6`/`connect_2_0_1` and this
+    crate's own tests use. Embedded users disable it and supply their own `Executor`/`Timer` (e.g. backed by
+    `embassy-executor`/`embassy-time`).
+  - **Internal `Mutex`/oneshot/mpsc/broadcast replacements live in `src/sync.rs`**, built on
+    `embassy-sync`'s `Mutex`/`Signal` fixed to `CriticalSectionRawMutex` (works under std via
+    `critical-section`'s `std` backend, gated by our `std` feature; embedded targets must register their own
+    backend via `critical_section::set_impl!`, standard embassy convention). The request-dispatch queue
+    (`Chan`) is now unbounded (backed by `alloc::collections::VecDeque`) instead of the old fixed-capacity
+    `mpsc::channel(1000)`, and the ping fan-out (`BroadcastRegistry`) gives each subscriber a single-slot
+    `Signal` rather than tokio broadcast's buffered channel - a slow `on_ping` subscriber sees only the
+    latest ping, not a backlog, which is fine for a low-frequency keepalive.
+  - Diagnostic `eprintln!` calls in `client.rs` are gated `#[cfg(feature = "std")]` (silently dropped
+    otherwise) - no `log`/`defmt` facade wired up yet; that's a reasonable follow-up if embedded users need
+    that output surfaced.
+  - True bare-metal no_std (no `alloc`) is still out of scope - the engine's `BTreeMap`/`VecDeque`/`Arc`-based
+    bookkeeping is alloc-dependent by design, matching `rust-ocpp`'s own no_std+alloc (not no_std+no_alloc)
+    support.
 
 ## Architecture
 
@@ -86,37 +117,40 @@ Add one `ocpp_1_6_action!(...)` line in `src/ocpp_1_6/actions.rs` with the actio
 types. Write the test first (a `tests/ocpp_1_6_fake_transport.rs`-style test is enough; no need for a real
 WebSocket round-trip per action - one real-transport test already covers that wiring).
 
-### Adding OCPP 2.1 (once its module is actually ready upstream)
+### Adding a new OCPP action to 2.1 (e.g. once `NotifyReport` lands upstream)
 
-Mirror `src/ocpp_2_0_1/` exactly: `src/ocpp_2_1/{error.rs,actions.rs,mod.rs}` (check the fork's `v2_1` error
-enum variants and full action list first, the way `src/ocpp_2_0_1/error.rs`/`actions.rs` were built from
-`v2_0_1`), a `pub type OCPP2_1Client = Client<OCPP2_1Error>;`, `connect_2_1()` in `connect.rs`, and add
-`ocpp_2_1` to the `default` list in `Cargo.toml`. Nothing in `client.rs`/`error.rs`/`envelope.rs`/
-`transport.rs` needs to change.
+Same as 1.6: add one `ocpp_2_1_action!(...)` line in `src/ocpp_2_1/actions.rs` with the action's `rust_ocpp`
+request/response types from `rust_ocpp::v2_1::messages::<module>`. Action name string = the struct name
+minus its `Request`/`Response` suffix; `send_x`/`on_x`/`wait_for_x` method names are the snake_case of that
+same name (the existing invocations in that file are the reference for edge cases like acronym runs -
+`Get15118EVCertificate` → `get_15118_ev_certificate`, `ClearDERControl` → `clear_der_control`). Write the
+test first, same TDD rule as every other version.
 
 ## TDD is mandatory
 
 Every behavior added so far has a test in `tests/`. Two styles, both expected going forward, mirrored per
-version (`ocpp_1_6_*` / `ocpp_2_0_1_*`):
+version (`ocpp_1_6_*` / `ocpp_2_0_1_*` / `ocpp_2_1_*`):
 
-- **Fake-transport tests** (`tests/ocpp_1_6_fake_transport.rs`, `tests/ocpp_2_0_1_fake_transport.rs`) — drive a
-  real `Client` over the in-memory transport in `tests/common/mod.rs`. Fast, no networking, and the right
-  default for anything about dispatch, timeouts, or error propagation.
-- **Real-transport tests** (`tests/ocpp_1_6_websocket.rs`, `tests/ocpp_2_0_1_websocket.rs`) — a real
-  `tokio-tungstenite` server task plus `connect_1_6`/`connect_2_0_1`, to prove the actual transport wiring
-  works. One of these per version+transport combination is enough; don't duplicate every action-level test
-  against a real socket.
+- **Fake-transport tests** (`tests/ocpp_1_6_fake_transport.rs`, `tests/ocpp_2_0_1_fake_transport.rs`,
+  `tests/ocpp_2_1_fake_transport.rs`) — drive a real `Client` over the in-memory transport in
+  `tests/common/mod.rs`. Fast, no networking, and the right default for anything about dispatch, timeouts, or
+  error propagation.
+- **Real-transport tests** (`tests/ocpp_1_6_websocket.rs`, `tests/ocpp_2_0_1_websocket.rs`,
+  `tests/ocpp_2_1_websocket.rs`) — a real `tokio-tungstenite` server task plus
+  `connect_1_6`/`connect_2_0_1`/`connect_2_1`, to prove the actual transport wiring works. One of these per
+  version+transport combination is enough; don't duplicate every action-level test against a real socket.
 - `wait_for_*` tests (`tests/ocpp_1_6_wait_for.rs`) need `#![cfg(feature = "test")]` at the top of the file and
   must be run with `cargo test --features test` — they're invisible to a plain `cargo test`.
 
 ## Common commands
 
 ```sh
-cargo build                              # default features: std, websocket, ocpp_1_6
+cargo build                              # default features: std, tokio-runtime, websocket, ocpp_1_6, ocpp_2_0_1, ocpp_2_1
 cargo test                                # run all tests
 cargo test <test_name>                    # run a single test by name (substring match)
 cargo test --features test                # also run the wait_for_* tests
-cargo build --no-default-features --features std,ocpp_1_6   # core + 1.6, no WebSocket transport
+cargo build --no-default-features --features std,ocpp_1_6   # core + 1.6, no tokio/WebSocket pulled in
+cargo build --lib --no-default-features --features ocpp_1_6 # no_std+alloc proof (no --target needed - lib-only, no binary to link)
 cargo fmt                                 # format (rustfmt, per CONTRIBUTING.md)
 ```
 

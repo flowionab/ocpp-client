@@ -5,7 +5,8 @@ mod common;
 use common::fake_transport_pair;
 use ocpp_client::ocpp_1_6::{OCPP1_6Client, OCPP1_6Error};
 use ocpp_client::{
-    Client, ClientError, ProtocolError, TransportEvent, TransportSink, TransportStream,
+    Client, ClientError, ProtocolError, TokioExecutor, TokioTimer, TransportEvent, TransportSink,
+    TransportStream,
 };
 use rust_ocpp::v1_6::messages::heart_beat::{HeartbeatRequest, HeartbeatResponse};
 use rust_ocpp::v1_6::messages::trigger_message::{TriggerMessageRequest, TriggerMessageResponse};
@@ -15,8 +16,13 @@ use std::time::Duration;
 
 fn client_pair(timeout: Duration) -> (OCPP1_6Client, common::FakeSink, common::FakeSource) {
     let ((client_sink, client_source), (peer_sink, peer_source)) = fake_transport_pair();
-    let client: OCPP1_6Client =
-        Client::from_transport(Box::new(client_sink), Box::new(client_source), timeout);
+    let client: OCPP1_6Client = Client::from_transport(
+        Box::new(client_sink),
+        Box::new(client_source),
+        timeout,
+        Box::new(TokioExecutor),
+        Box::new(TokioTimer),
+    );
     (client, peer_sink, peer_source)
 }
 

@@ -9,18 +9,24 @@ authors = ["Joatin Granlund <joatin@granlund.io>"]
 keywords = ["OCPP", "ChargePoint", "Client", "ocpp16", "ocpp201"]
 
 [features]
-default = ["std", "websocket", "ocpp_1_6", "ocpp_2_0_1"]
-# Pulls in std/alloc-only support. Forwards to rust-ocpp's own `std` feature, which gates
-# its validator/regex-based validation. Disable for no_std + alloc targets (embedded) -
-# the rust-ocpp side is no_std-capable now (see below), but src/client.rs still hard-depends
-# on tokio/async-trait unconditionally, so the crate as a whole isn't no_std yet.
-std = ["rust-ocpp/std"]
-# WebSocket transport. Implies `std`.
-websocket = ["std", "dep:tokio-tungstenite", "dep:futures", "dep:url", "dep:rustls", "dep:base64"]
+default = ["std", "tokio-runtime", "websocket", "ocpp_1_6", "ocpp_2_0_1", "ocpp_2_1"]
+# Pulls in std/alloc-only support. Forwards to rust-ocpp's own `std` feature (gates its
+# validator/regex-based validation) and critical-section's `std` backend (gates the mutex
+# implementation src/sync.rs's `CriticalSectionRawMutex` uses under the hood). Disable for
+# no_std + alloc targets (embedded); the engine itself (src/client.rs) has no unconditional
+# std/tokio dependency left - see the `Executor`/`Timer` traits in src/runtime.rs. Embedded
+# users must supply their own `Executor`/`Timer` impls plus a `critical-section` backend for
+# their target (via `critical_section::set_impl!`).
+std = ["rust-ocpp/std", "critical-section/std"]
+# tokio-backed `Executor`/`Timer` impls (`TokioExecutor`/`TokioTimer`). Implies `std`.
+tokio-runtime = ["std", "dep:tokio"]
+# WebSocket transport. tokio-tungstenite inherently needs a tokio runtime, so this implies
+# `tokio-runtime`.
+websocket = ["tokio-runtime", "dep:tokio-tungstenite", "dep:futures", "dep:url", "dep:rustls", "dep:base64"]
 ocpp_1_6 = ["rust-ocpp/v1_6"]
 ocpp_2_0_1 = ["rust-ocpp/v2_0_1"]
-# rust-ocpp itself now has a real `wip_v2_1` feature (see below), but src/ocpp_2_1/ doesn't
-# exist in this crate yet - porting it is separate from this feature existing.
+# OCPP 2.1, mirroring src/ocpp_2_0_1/ (see CLAUDE.md). One action, NotifyReport, is missing -
+# rust-ocpp's `wip_v2_1::messages::notify_report` module is still empty upstream.
 ocpp_2_1 = ["rust-ocpp/wip_v2_1"]
 test = []
 
@@ -33,10 +39,14 @@ serde = { version = "1", default-features = false, features = ["derive", "alloc"
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
 uuid = { version = "1", default-features = false, features = ["v4"] }
 
-# The engine itself needs an async runtime and a way to write dyn-safe async traits,
-# regardless of which transport is enabled - not gated by "websocket".
-tokio = { version = "1", features = ["sync", "rt", "time"] }
-async-trait = { version = "0.1" }
+# no_std+alloc-friendly Mutex/Signal primitives backing src/sync.rs - used unconditionally by
+# the engine regardless of the `std`/`tokio-runtime` features.
+embassy-sync = { version = "0.8", default-features = false }
+critical-section = { version = "1" }
+
+# Only needed for the tokio-backed `Executor`/`Timer` impls (`tokio-runtime` feature) and the
+# WebSocket transport, which needs a tokio runtime regardless.
+tokio = { version = "1", features = ["sync", "rt", "time"], optional = true }
 
 tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"], optional = true }
 futures = { version = "0.3", optional = true }
