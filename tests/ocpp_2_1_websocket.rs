@@ -1,4 +1,5 @@
 //! Real WebSocket round-trip for 2.1 - same shape as tests/ocpp_2_0_1_websocket.rs.
+#![allow(clippy::result_large_err)]
 use futures::{SinkExt, StreamExt};
 use ocpp_client::connect_2_1;
 use rust_ocpp::v2_1::messages::heartbeat::HeartbeatRequest;

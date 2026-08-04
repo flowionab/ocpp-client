@@ -1,5 +1,6 @@
 //! Real WebSocket round-trip: a tokio-tungstenite server accepts one connection and speaks
 //! raw OCPP-J, `connect_1_6` drives the real client against it end to end.
+#![allow(clippy::result_large_err)]
 use futures::{SinkExt, StreamExt};
 use ocpp_client::connect_1_6;
 use rust_ocpp::v1_6::messages::heart_beat::HeartbeatRequest;
