@@ -3,6 +3,7 @@ use crate::envelope::{
     MESSAGE_TYPE_CALL, MESSAGE_TYPE_ERROR, MESSAGE_TYPE_RESULT, RawCall, RawError, RawResult,
 };
 use crate::error::{ClientError, ProtocolError};
+use crate::reconnect::{ReconnectPolicy, Reconnector};
 use crate::runtime::{Executor, Timer, with_timeout};
 use crate::sync::{BroadcastRegistry, Chan, OneShot, SharedMutex};
 use crate::transport::{TransportEvent, TransportSink, TransportStream};
@@ -61,10 +62,37 @@ impl<E: ProtocolError> Client<E> {
     /// backed by `embassy-executor`/`embassy-time`).
     pub fn from_transport(
         sink: Box<dyn TransportSink>,
+        stream: Box<dyn TransportStream>,
+        timeout: Duration,
+        executor: Box<dyn Executor>,
+        timer: Box<dyn Timer>,
+    ) -> Self {
+        Self::from_transport_with_reconnect(
+            sink,
+            stream,
+            timeout,
+            executor,
+            timer,
+            None,
+            ReconnectPolicy::default(),
+        )
+    }
+
+    /// Same as [`Client::from_transport`], but with automatic reconnect: when the transport
+    /// closes (`TransportStream::recv` returns `Ok(None)`/`Err(_)`), the background read loop
+    /// calls `reconnector.connect()` (backing off per `reconnect_policy` between failed
+    /// attempts) instead of exiting, and swaps in the new transport once one succeeds.
+    /// `reconnector: None` reproduces `from_transport`'s behavior - the read loop exits on
+    /// disconnect and the client goes quiet. `connect_1_6`/`connect_2_0_1`/`connect_2_1` use
+    /// this constructor with a WebSocket-backed `Reconnector`.
+    pub fn from_transport_with_reconnect(
+        sink: Box<dyn TransportSink>,
         mut stream: Box<dyn TransportStream>,
         timeout: Duration,
         executor: Box<dyn Executor>,
         timer: Box<dyn Timer>,
+        reconnector: Option<Box<dyn Reconnector>>,
+        reconnect_policy: ReconnectPolicy,
     ) -> Self {
         let sink = Arc::new(SharedMutex::new(sink));
         let pending_responses: PendingResponses<E> = Arc::new(SharedMutex::new(BTreeMap::new()));
@@ -79,31 +107,55 @@ impl<E: ProtocolError> Client<E> {
         let read_pong_waiters = pong_waiters.clone();
         let read_ping_registry = ping_registry.clone();
         let read_sink = sink.clone();
+        let read_timer = timer.clone();
 
         executor.spawn(Box::pin(async move {
             loop {
-                match stream.recv().await {
-                    Ok(Some(TransportEvent::Frame(frame))) => {
-                        handle_frame::<E>(
-                            &frame,
-                            &read_pending_responses,
-                            &read_request_senders,
-                            &read_sink,
-                        )
-                        .await;
+                loop {
+                    match stream.recv().await {
+                        Ok(Some(TransportEvent::Frame(frame))) => {
+                            handle_frame::<E>(
+                                &frame,
+                                &read_pending_responses,
+                                &read_request_senders,
+                                &read_sink,
+                            )
+                            .await;
+                        }
+                        Ok(Some(TransportEvent::Ping)) => {
+                            read_ping_registry.notify_all().await;
+                            let mut lock = read_sink.lock().await;
+                            let _ = lock.pong().await;
+                        }
+                        Ok(Some(TransportEvent::Pong)) => {
+                            let mut lock = read_pong_waiters.lock().await;
+                            if let Some(waiter) = lock.pop_front() {
+                                waiter.send(());
+                            }
+                        }
+                        Ok(None) | Err(_) => break,
                     }
-                    Ok(Some(TransportEvent::Ping)) => {
-                        read_ping_registry.notify_all().await;
-                        let mut lock = read_sink.lock().await;
-                        let _ = lock.pong().await;
-                    }
-                    Ok(Some(TransportEvent::Pong)) => {
-                        let mut lock = read_pong_waiters.lock().await;
-                        if let Some(waiter) = lock.pop_front() {
-                            waiter.send(());
+                }
+
+                let Some(reconnector) = reconnector.as_ref() else {
+                    break;
+                };
+
+                let mut attempt = 0u32;
+                loop {
+                    match reconnector.connect().await {
+                        Ok((new_sink, new_stream)) => {
+                            *read_sink.lock().await = new_sink;
+                            stream = new_stream;
+                            break;
+                        }
+                        Err(_err) => {
+                            #[cfg(feature = "std")]
+                            std::eprintln!("ocpp-client: reconnect attempt failed: {_err}");
+                            read_timer.delay(reconnect_policy.delay_for(attempt)).await;
+                            attempt = attempt.saturating_add(1);
                         }
                     }
-                    Ok(None) | Err(_) => break,
                 }
             }
         }));
