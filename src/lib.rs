@@ -44,6 +44,12 @@ pub use runtime::tokio::{TokioExecutor, TokioTimer};
 #[cfg(feature = "websocket")]
 pub use connect::ConnectOptions;
 
+/// Re-exported so callers can build a `rustls::ClientConfig` (e.g. with a custom root CA via
+/// `ConnectOptions::tls_config`) using the exact `rustls` version this crate was compiled
+/// against, without needing to pin a matching version in their own `Cargo.toml`.
+#[cfg(feature = "websocket")]
+pub use rustls;
+
 #[cfg(all(feature = "websocket", feature = "ocpp_1_6"))]
 pub use connect::connect_1_6;
 

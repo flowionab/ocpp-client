@@ -48,6 +48,15 @@ Gaps to close before pointing real hardware/fleets at this crate, in priority or
    no `log`/`defmt`/`tracing` facade. Fine for a hobby project, awkward for production ops
    (no log levels, nothing embedded targets can hook into).
 
-8. **TLS trust config isn't exposed.** `connect.rs` uses `rustls-tls-webpki-roots` (public CA
-   validation only). No way to supply a custom root store through this crate's `connect_*`
-   functions, which blocks CSMS backends that use a private/internal CA.
+8. ~~**TLS trust config isn't exposed.**~~ **Done.** `ConnectOptions::tls_config: Option<Arc<rustls::ClientConfig>>`
+   lets callers supply their own `rustls::ClientConfig` (custom root CA, mTLS client certs,
+   whatever `rustls` supports) instead of the default public-CA-only `webpki-roots` trust
+   store; `None` keeps the old default behavior. Threaded through reconnect too - the
+   `WebSocketReconnector` reuses the same config on every redial. `ocpp_client::rustls` now
+   re-exports the exact `rustls` version this crate was built against, so callers don't have to
+   pin a matching version themselves. Covered by `tests/ocpp_1_6_custom_tls.rs`: one test proves
+   a `wss://` connection succeeds against a self-signed cert when its exact cert is the
+   configured root, another proves the *default* config still rejects that same self-signed
+   cert (i.e. the escape hatch doesn't weaken the default trust posture). `rcgen` (dev-only,
+   `aws_lc_rs` backend to match `rustls`'s default and keep only one crypto provider in the
+   graph) generates the test certificate.
