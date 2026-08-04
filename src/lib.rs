@@ -54,6 +54,9 @@ pub use connect::ConnectOptions;
 #[cfg(feature = "websocket")]
 pub use rustls;
 
+#[cfg(feature = "websocket")]
+pub use connect::{NegotiatedClient, OcppVersion, connect};
+
 #[cfg(all(feature = "websocket", feature = "ocpp_1_6"))]
 pub use connect::connect_1_6;
 
