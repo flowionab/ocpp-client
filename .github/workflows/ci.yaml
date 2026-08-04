@@ -1,14 +1,60 @@
+name: CI
 
 on:
-  push: {}
+  push:
+    branches: [main]
+  pull_request:
+
 env:
   CARGO_TERM_COLOR: always
+
 jobs:
-  build:
-      runs-on: ubuntu-latest
-      steps:
-      - uses: actions/checkout@v3
-      - name: Build
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Clippy (all targets, all features)
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build (default features)
         run: cargo build
-      - name: Run tests
-        run: cargo test
+      # `--features test` adds the wait_for_* tests (see tests/ocpp_1_6_wait_for.rs) on top of
+      # the default feature set - a plain `cargo test` never runs them.
+      - name: Test (default features + test)
+        run: cargo test --features test
+
+  no_std:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      # Standing proof that the engine builds without std/tokio for embedded targets. See
+      # CLAUDE.md's "no_std+alloc works now" section - re-check this whenever client.rs,
+      # transport.rs, error.rs, or a per-version error.rs/actions.rs changes.
+      - name: no_std+alloc build (ocpp_1_6)
+        run: cargo build --lib --no-default-features --features ocpp_1_6
+      - name: no_std+alloc build (ocpp_2_0_1)
+        run: cargo build --lib --no-default-features --features ocpp_2_0_1
+      - name: no_std+alloc build (ocpp_2_1)
+        run: cargo build --lib --no-default-features --features ocpp_2_1
