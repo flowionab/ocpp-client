@@ -58,7 +58,7 @@ test = []
 [dependencies]
 # Strongly typed, no_std+no_alloc-by-default OCPP message types generated from the official
 # JSON schemas - see MIGRATION_OCPP_TYPES.md for why this replaced the rust-ocpp fork.
-ocpp-types = { version = "0.1.1", default-features = false, features = ["serde", "alloc"] }
+ocpp-types = { version = "0.1.2", default-features = false, features = ["serde", "alloc"] }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
 uuid = { version = "1", default-features = false, features = ["v4"] }
