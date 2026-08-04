@@ -54,7 +54,11 @@ The library currently supports **OCPP 1.6J**, **OCPP 2.0.1**, and **OCPP 2.1**.
 | ---------- | -------------- |
 | OCPP 1.6J  | ✅ Supported    |
 | OCPP 2.0.1 | ✅ Supported    |
-| OCPP 2.1   | ✅ Supported    |
+| OCPP 2.1   | ✅ Supported *  |
+
+\* One OCPP 2.1 action, `NotifyReport`, isn't wired up yet - it's blocked on an empty module
+in the upstream [`rust-ocpp`](https://github.com/flowionab/rust-ocpp) fork this crate depends
+on. Every other 2.1 action works.
 
 ---
 

@@ -38,7 +38,10 @@ Gaps to close before pointing real hardware/fleets at this crate, in priority or
 
 4. **`NotifyReport` (OCPP 2.1) is unimplemented** — blocked upstream on `rust-ocpp`'s
    `wip_v2_1::messages::notify_report` being an empty module. Blocks 2.1 device-model
-   reporting until upstream lands it or the fork is patched.
+   reporting until upstream lands it or the fork is patched. Not otherwise actionable from
+   here (nothing to fix in this crate until upstream lands it), so instead of a code change,
+   flagged it in the README's supported-protocols table so users don't discover the gap by
+   surprise.
 
 5. **Versioning/release.** Crate is `0.2.0-alpha.1` and depends on a git fork of `rust-ocpp`
    rather than a crates.io release. Not publishable to crates.io as-is (git deps generally
