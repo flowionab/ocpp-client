@@ -10,8 +10,8 @@ use ocpp_client::{
 };
 use ocpp_types::v21::common::{ResetEnum, ResetStatusEnum};
 use ocpp_types::v21::{
-    HeartbeatRequest, HeartbeatResponse, NotifyReportRequest, NotifyReportResponse, ResetRequest,
-    ResetResponse,
+    HeartbeatRequest, HeartbeatResponse, NotifyPeriodicEventStream, NotifyReportRequest,
+    NotifyReportResponse, ResetRequest, ResetResponse,
 };
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -171,4 +171,92 @@ async fn unregistered_action_gets_not_implemented() {
     assert_eq!(response[0], 4);
     assert_eq!(response[1], "req-2");
     assert_eq!(response[2], OCPP2_1Error::not_implemented("Reset").code());
+}
+
+#[tokio::test]
+async fn send_notify_periodic_event_stream_writes_a_send_frame_and_does_not_wait_for_a_reply() {
+    let (client, mut peer_sink, mut peer_source) = client_pair(Duration::from_secs(5));
+
+    let payload = NotifyPeriodicEventStream {
+        basetime: "2024-08-27T12:30:40Z".to_string(),
+        custom_data: None,
+        data: Vec::new(),
+        id: 123,
+        pending: 0,
+    };
+
+    // `send_notification` returns as soon as the transport accepts the frame - no waiter, no
+    // timeout - so this must resolve even though nothing on `peer_sink`/`peer_source` ever
+    // sends a reply.
+    client
+        .send_notify_periodic_event_stream(payload)
+        .await
+        .unwrap();
+
+    let frame = recv_frame(&mut peer_source).await;
+    assert_eq!(frame[0], 6);
+    assert_eq!(frame[2], "NotifyPeriodicEventStream");
+    assert_eq!(frame[3]["id"], 123);
+    assert_eq!(frame[3]["pending"], 0);
+
+    // Proves the client itself never auto-replies to its own SEND: the next thing to arrive
+    // on this in-memory transport is a CALL sent afterwards, not some stray CALLRESULT/
+    // CALLERROR for the SEND.
+    let heartbeat = tokio::spawn(async move {
+        client
+            .send_heartbeat(HeartbeatRequest { custom_data: None })
+            .await
+    });
+    let next_frame = recv_frame(&mut peer_source).await;
+    assert_eq!(next_frame[0], 2);
+    assert_eq!(next_frame[2], "Heartbeat");
+    let message_id = next_frame[1].as_str().unwrap().to_string();
+    let response = HeartbeatResponse {
+        custom_data: None,
+        current_time: chrono::Utc::now().to_rfc3339(),
+    };
+    peer_sink
+        .send(serde_json::to_string(&json!([3, message_id, response])).unwrap())
+        .await
+        .unwrap();
+    heartbeat.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn on_notify_periodic_event_stream_fires_and_never_sends_a_reply() {
+    let (client, mut peer_sink, mut peer_source) = client_pair(Duration::from_secs(5));
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    client
+        .on_notify_periodic_event_stream(move |payload, _client| {
+            let tx = tx.clone();
+            async move {
+                let _ = tx.send(payload);
+            }
+        })
+        .await;
+
+    let send_frame = serde_json::to_string(&json!([
+        6,
+        "peer-1",
+        "NotifyPeriodicEventStream",
+        {
+            "basetime": "2024-08-27T12:30:40Z",
+            "data": [],
+            "id": 123,
+            "pending": 0,
+        }
+    ]))
+    .unwrap();
+    peer_sink.send(send_frame).await.unwrap();
+
+    let received = rx.recv().await.unwrap();
+    assert_eq!(received.id, 123);
+    assert_eq!(received.pending, 0);
+
+    // The spec forbids replying to a SEND - assert nothing comes back within a short window.
+    let nothing = tokio::time::timeout(Duration::from_millis(200), peer_source.recv()).await;
+    assert!(nothing.is_err(), "client must never reply to a SEND");
+
+    let _keep_alive = client;
 }

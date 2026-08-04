@@ -42,10 +42,15 @@ Gaps to close before pointing real hardware/fleets at this crate, in priority or
    `ocpp_2_1_action!(NotifyReport, ...)` is wired up in `src/ocpp_2_1/actions.rs` like every
    other action, covered by a fake-transport test proving a full CALL/CALLRESULT round trip
    (`tests/ocpp_2_1_fake_transport.rs::call_resolves_notify_report_now_that_its_wired_up`).
-   Every 2.1 action is now implemented (with one modeling caveat: `NotifyPeriodicEventStream`
-   is spec-defined as SEND-only but `Client`'s engine has no SEND-frame support yet, so it's
-   still modeled as a call/response pair - see the comment above its `ocpp_2_1_action!`
-   invocation).
+   Every 2.1 action is now implemented, including `NotifyPeriodicEventStream` as a genuine
+   `SEND` (OCPP-J message type 6, fire-and-forget, no CALLRESULT) rather than the earlier
+   call/response modeling workaround - `Client`'s engine gained real SEND-frame support
+   (`Client::send_notification`/`Client::on_notification`, backed by the new `SendAction`
+   trait) and `src/ocpp_2_1/actions.rs` wires the action up via the new
+   `ocpp_2_1_send_action!` macro. Covered by
+   `tests/ocpp_2_1_fake_transport.rs::send_notify_periodic_event_stream_writes_a_send_frame_and_does_not_wait_for_a_reply`
+   and `::on_notify_periodic_event_stream_fires_and_never_sends_a_reply`, the latter also
+   asserting the client never auto-replies to a received SEND.
 
 5. **Versioning/release.** Crate is `0.2.0-alpha.1`. The git-fork dependency blocker is gone -
    `ocpp-types` is a real crates.io release (`0.1.1`), not a git dependency, so that specific

@@ -12,3 +12,13 @@ pub trait Action: Send + Sync + 'static {
     type Request: Serialize + DeserializeOwned + Send + Sync + 'static;
     type Response: Serialize + DeserializeOwned + Send + Sync + 'static;
 }
+
+/// One OCPP-J `SEND` (2.1 only) message: a single payload type with no separate
+/// response, unlike [`Action`]. The wire frame is `[6, MessageId, NAME, Payload]` and the
+/// receiver must never reply to it (see the OCPP-J specification's `SEND` message type) -
+/// `Client::send_notification`/`Client::on_notification` are the fire-and-forget counterparts
+/// to `Action`'s `call`/`on`.
+pub trait SendAction: Send + Sync + 'static {
+    const NAME: &'static str;
+    type Payload: Serialize + DeserializeOwned + Send + Sync + 'static;
+}

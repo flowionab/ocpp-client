@@ -1,4 +1,4 @@
-use crate::action::Action;
+use crate::action::{Action, SendAction};
 use crate::error::ClientError;
 use crate::ocpp_2_1::OCPP2_1Client;
 use crate::ocpp_2_1::error::OCPP2_1Error;
@@ -100,6 +100,36 @@ macro_rules! ocpp_2_1_action {
                 FF: Future<Output = Result<$res, OCPP2_1Error>> + Send,
             {
                 self.wait_for::<$name, F, FF>(callback).await
+            }
+        }
+    };
+}
+
+/// Like `ocpp_2_1_action!`, but for OCPP-J 2.1's `SEND` (fire-and-forget) message type
+/// instead of a CALL/CALLRESULT pair: `$payload` is a single struct (e.g.
+/// `NotifyPeriodicEventStream`), not a Request/Response pair, and the generated `$on` callback
+/// returns nothing, since the spec forbids replying to a `SEND`.
+macro_rules! ocpp_2_1_send_action {
+    ($name:ident, $payload:ty, $action:literal, $send:ident, $on:ident) => {
+        #[doc = concat!("Marker type for the `", $action, "` SEND message.")]
+        pub struct $name;
+
+        impl SendAction for $name {
+            const NAME: &'static str = $action;
+            type Payload = $payload;
+        }
+
+        impl OCPP2_1Client {
+            pub async fn $send(&self, payload: $payload) -> Result<(), ClientError<OCPP2_1Error>> {
+                self.send_notification::<$name>(payload).await
+            }
+
+            pub async fn $on<F, FF>(&self, callback: F)
+            where
+                F: FnMut($payload, Self) -> FF + Send + Sync + 'static,
+                FF: Future<Output = ()> + Send,
+            {
+                self.on_notification::<$name, F, FF>(callback).await
             }
         }
     };
@@ -582,20 +612,18 @@ ocpp_2_1_action!(
     on_notify_report,
     wait_for_notify_report
 );
-// `NotifyPeriodicEventStream` is genuinely SEND-only in the OCPP-J 2.1 spec (no CALLRESULT),
-// so `ocpp_types` models it as one struct, not a Request/Response pair - unlike every other
-// action here. `Client`'s CALL/CALLRESULT engine has no SEND-frame support yet, so this keeps
-// modeling it as a call whose "response" is the same struct shape, matching this crate's
-// pre-existing (already spec-loose) behavior under `rust-ocpp`. The marker type is suffixed
-// `Action` to avoid colliding with the imported `NotifyPeriodicEventStream` message type.
-ocpp_2_1_action!(
+// `NotifyPeriodicEventStream` is genuinely SEND-only in the OCPP-J 2.1 spec (no CALLRESULT) -
+// `ocpp_types` models it as one struct, not a Request/Response pair, unlike every other action
+// here. Wired up as a real `SEND` (message type 6) via `ocpp_2_1_send_action!`/
+// `Client::send_notification`/`Client::on_notification` - see `src/client.rs`. The marker type
+// is suffixed `Action` to avoid colliding with the imported `NotifyPeriodicEventStream` message
+// type.
+ocpp_2_1_send_action!(
     NotifyPeriodicEventStreamAction,
-    NotifyPeriodicEventStream,
     NotifyPeriodicEventStream,
     "NotifyPeriodicEventStream",
     send_notify_periodic_event_stream,
-    on_notify_periodic_event_stream,
-    wait_for_notify_periodic_event_stream
+    on_notify_periodic_event_stream
 );
 ocpp_2_1_action!(
     NotifyPriorityCharging,

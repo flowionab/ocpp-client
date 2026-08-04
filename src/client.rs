@@ -1,6 +1,7 @@
-use crate::action::Action;
+use crate::action::{Action, SendAction};
 use crate::envelope::{
-    MESSAGE_TYPE_CALL, MESSAGE_TYPE_ERROR, MESSAGE_TYPE_RESULT, RawCall, RawError, RawResult,
+    MESSAGE_TYPE_CALL, MESSAGE_TYPE_ERROR, MESSAGE_TYPE_RESULT, MESSAGE_TYPE_SEND, RawCall,
+    RawError, RawResult, RawSend,
 };
 use crate::error::{ClientError, ProtocolError};
 use crate::reconnect::{ReconnectPolicy, Reconnector};
@@ -22,6 +23,7 @@ use uuid::Uuid;
 
 type PendingResponses<E> = Arc<SharedMutex<BTreeMap<Uuid, OneShot<Result<Value, E>>>>>;
 type RequestSenders = Arc<SharedMutex<BTreeMap<String, Chan<(String, Value)>>>>;
+type NotificationSenders = Arc<SharedMutex<BTreeMap<String, Chan<Value>>>>;
 type PongWaiters = Arc<SharedMutex<VecDeque<OneShot<()>>>>;
 
 /// The OCPP client engine, generic over one version's protocol error type. `OCPP1_6Client`
@@ -31,6 +33,7 @@ pub struct Client<E: ProtocolError> {
     sink: Arc<SharedMutex<Box<dyn TransportSink>>>,
     pending_responses: PendingResponses<E>,
     request_senders: RequestSenders,
+    notification_senders: NotificationSenders,
     pong_waiters: PongWaiters,
     ping_registry: Arc<BroadcastRegistry>,
     reconnect_registry: Arc<BroadcastRegistry>,
@@ -45,6 +48,7 @@ impl<E: ProtocolError> Clone for Client<E> {
             sink: self.sink.clone(),
             pending_responses: self.pending_responses.clone(),
             request_senders: self.request_senders.clone(),
+            notification_senders: self.notification_senders.clone(),
             pong_waiters: self.pong_waiters.clone(),
             ping_registry: self.ping_registry.clone(),
             reconnect_registry: self.reconnect_registry.clone(),
@@ -99,6 +103,7 @@ impl<E: ProtocolError> Client<E> {
         let sink = Arc::new(SharedMutex::new(sink));
         let pending_responses: PendingResponses<E> = Arc::new(SharedMutex::new(BTreeMap::new()));
         let request_senders: RequestSenders = Arc::new(SharedMutex::new(BTreeMap::new()));
+        let notification_senders: NotificationSenders = Arc::new(SharedMutex::new(BTreeMap::new()));
         let pong_waiters: PongWaiters = Arc::new(SharedMutex::new(VecDeque::new()));
         let ping_registry = Arc::new(BroadcastRegistry::new());
         let reconnect_registry = Arc::new(BroadcastRegistry::new());
@@ -107,6 +112,7 @@ impl<E: ProtocolError> Client<E> {
 
         let read_pending_responses = pending_responses.clone();
         let read_request_senders = request_senders.clone();
+        let read_notification_senders = notification_senders.clone();
         let read_pong_waiters = pong_waiters.clone();
         let read_ping_registry = ping_registry.clone();
         let read_reconnect_registry = reconnect_registry.clone();
@@ -122,6 +128,7 @@ impl<E: ProtocolError> Client<E> {
                                 &frame,
                                 &read_pending_responses,
                                 &read_request_senders,
+                                &read_notification_senders,
                                 &read_sink,
                             )
                             .await;
@@ -169,6 +176,7 @@ impl<E: ProtocolError> Client<E> {
             sink,
             pending_responses,
             request_senders,
+            notification_senders,
             pong_waiters,
             ping_registry,
             reconnect_registry,
@@ -247,6 +255,57 @@ impl<E: ProtocolError> Client<E> {
             }
             Err(_) => Err(ClientError::Timeout),
         }
+    }
+
+    /// Send a `SEND` (OCPP-J 2.1 only) fire-and-forget message: writes the frame and returns as
+    /// soon as the transport accepts it - no waiter, no timeout, since the spec forbids the
+    /// receiver from ever replying to a `SEND`.
+    pub async fn send_notification<A: SendAction>(
+        &self,
+        payload: A::Payload,
+    ) -> Result<(), ClientError<E>> {
+        let message_id = Uuid::new_v4();
+        let payload = serde_json::to_value(&payload).map_err(ClientError::Decode)?;
+        let send = RawSend(
+            MESSAGE_TYPE_SEND,
+            message_id.to_string(),
+            A::NAME.to_string(),
+            payload,
+        );
+        let frame = serde_json::to_string(&send).map_err(ClientError::Decode)?;
+
+        let mut lock = self.sink.lock().await;
+        lock.send(frame).await.map_err(ClientError::Transport)
+    }
+
+    /// Register a handler for `SEND` (OCPP-J 2.1 only) messages of action `A`. Unlike
+    /// [`Client::on`], `callback` returns nothing - the spec forbids replying to a `SEND`, so
+    /// there's no response to send back. Replaces any previously registered handler for the
+    /// same action.
+    pub async fn on_notification<A, F, FF>(&self, mut callback: F)
+    where
+        A: SendAction,
+        F: FnMut(A::Payload, Self) -> FF + Send + Sync + 'static,
+        FF: Future<Output = ()> + Send,
+    {
+        let chan: Chan<Value> = Chan::new();
+        {
+            let mut lock = self.notification_senders.lock().await;
+            lock.insert(A::NAME.to_string(), chan.clone());
+        }
+
+        let client = self.clone();
+        self.executor.spawn(Box::pin(async move {
+            loop {
+                let payload = chan.recv().await;
+                match serde_json::from_value::<A::Payload>(payload) {
+                    Ok(payload) => callback(payload, client.clone()).await,
+                    Err(err) => {
+                        tracing::warn!(error = %err, action = A::NAME, "ocpp-client: failed to parse SEND payload");
+                    }
+                }
+            }
+        }));
     }
 
     pub async fn send_ping(&self) -> Result<(), ClientError<E>> {
@@ -389,6 +448,7 @@ async fn handle_frame<E: ProtocolError>(
     frame: &str,
     pending_responses: &PendingResponses<E>,
     request_senders: &RequestSenders,
+    notification_senders: &NotificationSenders,
     sink: &Arc<SharedMutex<Box<dyn TransportSink>>>,
 ) {
     let value: Value = match serde_json::from_str(frame) {
@@ -477,6 +537,26 @@ async fn handle_frame<E: ProtocolError>(
             let mut lock = pending_responses.lock().await;
             if let Some(sender) = lock.remove(&id) {
                 sender.send(Err(E::from_wire(&error.2, &error.3, error.4)));
+            }
+        }
+        MESSAGE_TYPE_SEND => {
+            let send: RawSend = match serde_json::from_str(frame) {
+                Ok(s) => s,
+                Err(err) => {
+                    tracing::warn!(error = %err, "ocpp-client: failed to parse SEND");
+                    return;
+                }
+            };
+            let action = &send.2;
+            let sender = {
+                let lock = notification_senders.lock().await;
+                lock.get(action).cloned()
+            };
+            match sender {
+                Some(sender) => sender.send(send.3).await,
+                None => {
+                    tracing::warn!(action = %action, "ocpp-client: SEND for unhandled action");
+                }
             }
         }
         other => {

@@ -16,10 +16,13 @@ shared by every OCPP version, with a transport abstraction so WebSocket isn't th
   missing until the migration documented in `MIGRATION_OCPP_TYPES.md` closed the gap). 2.1 mirrors
   `src/ocpp_2_0_1/` exactly (`src/ocpp_2_1/{mod,error,actions}.rs`, `OCPP2_1Client`, `connect_2_1()`) -
   `OCPP2_1Error` reuses the same RPC framework error codes as `OCPP2_0_1Error` (OCPP-J's envelope/error-code
-  set didn't change between 2.0.1 and 2.1). One 2.1 action, `NotifyPeriodicEventStream`, is modeled as a
-  call/response pair even though the spec defines it as SEND-only (no CALLRESULT) - `Client`'s engine has no
-  SEND-frame support yet; see the comment above its `ocpp_2_1_action!` invocation in
-  `src/ocpp_2_1/actions.rs` for the tradeoff.
+  set didn't change between 2.0.1 and 2.1). `Client`'s engine now supports OCPP-J 2.1's `SEND` (message
+  type 6, fire-and-forget, no CALLRESULT) alongside CALL/CALLRESULT/CALLERROR -
+  `Client::send_notification`/`Client::on_notification` in `src/client.rs`, driven by the `SendAction` trait
+  (`src/action.rs`), a sibling of `Action` for single-payload messages with no response type. 2.1's one
+  SEND-only action, `NotifyPeriodicEventStream`, is wired up via `ocpp_2_1_send_action!` in
+  `src/ocpp_2_1/actions.rs` (a sibling of `ocpp_2_1_action!`) instead of being modeled as a call/response
+  pair.
 - **WebSocket is the only transport.** The engine (`Client<E>`) is transport-agnostic via the `Transport{Sink,Stream}`
   traits, but no second transport (e.g. an embedded framed link) exists yet.
 - **Message types come from `ocpp-types`** (crates.io, `flowionab` org, currently `0.1.1`), not the
