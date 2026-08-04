@@ -3,10 +3,8 @@
 //!
 //! Run with: cargo run --example connect -- wss://your-csms.example/CHARGE_POINT_ID
 use ocpp_client::connect_1_6;
-use rust_ocpp::v1_6::messages::heart_beat::HeartbeatRequest;
-use rust_ocpp::v1_6::messages::reset::ResetResponse;
-use rust_ocpp::v1_6::messages::trigger_message::TriggerMessageResponse;
-use rust_ocpp::v1_6::types::{ResetResponseStatus, TriggerMessageStatus};
+use ocpp_types::v16::common::{ResetResponseStatus, TriggerMessageResponseStatus};
+use ocpp_types::v16::{HeartbeatRequest, ResetResponse, TriggerMessageResponse};
 use tokio::signal;
 use tokio::time::{Duration, interval};
 
@@ -22,7 +20,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
     client
         .on_trigger_message(|_request, _client| async move {
             Ok(TriggerMessageResponse {
-                status: TriggerMessageStatus::Accepted,
+                status: TriggerMessageResponseStatus::Accepted,
             })
         })
         .await;

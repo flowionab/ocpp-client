@@ -8,9 +8,10 @@ use ocpp_client::{
     Client, ClientError, ProtocolError, TokioExecutor, TokioTimer, TransportEvent, TransportSink,
     TransportStream,
 };
-use rust_ocpp::v2_1::messages::heartbeat::{HeartbeatRequest, HeartbeatResponse};
-use rust_ocpp::v2_1::messages::reset::{
-    ResetEnumType, ResetRequest, ResetResponse, ResetStatusEnumType,
+use ocpp_types::v21::common::{ResetEnum, ResetStatusEnum};
+use ocpp_types::v21::{
+    HeartbeatRequest, HeartbeatResponse, NotifyReportRequest, NotifyReportResponse, ResetRequest,
+    ResetResponse,
 };
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -51,13 +52,13 @@ async fn call_resolves_on_matching_result() {
 
     let response = HeartbeatResponse {
         custom_data: None,
-        current_time: chrono::Utc::now(),
+        current_time: chrono::Utc::now().to_rfc3339(),
     };
     let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
     peer_sink.send(result_frame).await.unwrap();
 
     let response = call.await.unwrap().unwrap();
-    assert!(response.current_time.timestamp() > 0);
+    assert!(!response.current_time.is_empty());
 }
 
 #[tokio::test]
@@ -106,7 +107,7 @@ async fn on_action_answers_a_call_from_the_peer() {
         .on_reset(|_req, _client| async move {
             Ok(ResetResponse {
                 custom_data: None,
-                status: ResetStatusEnumType::Accepted,
+                status: ResetStatusEnum::Accepted,
                 status_info: None,
             })
         })
@@ -114,7 +115,7 @@ async fn on_action_answers_a_call_from_the_peer() {
 
     let request = ResetRequest {
         custom_data: None,
-        reset_type: ResetEnumType::Immediate,
+        r#type: ResetEnum::Immediate,
         evse_id: None,
     };
     let call_frame = serde_json::to_string(&json!([2, "req-1", "Reset", request])).unwrap();
@@ -123,7 +124,38 @@ async fn on_action_answers_a_call_from_the_peer() {
     let response = recv_frame(&mut peer_source).await;
     assert_eq!(response[0], 3);
     assert_eq!(response[1], "req-1");
-    assert_eq!(response[2]["status"], "accepted");
+    assert_eq!(response[2]["status"], "Accepted");
+}
+
+// `NotifyReport` was unimplemented until ocpp-types shipped it (rust-ocpp's `wip_v2_1` module
+// was still empty upstream) - see MIGRATION_OCPP_TYPES.md and PRODUCTION_READINESS.md item 4.
+#[tokio::test]
+async fn call_resolves_notify_report_now_that_its_wired_up() {
+    let (client, mut peer_sink, mut peer_source) = client_pair(Duration::from_secs(5));
+
+    let call = tokio::spawn(async move {
+        client
+            .send_notify_report(NotifyReportRequest {
+                custom_data: None,
+                generated_at: "2024-01-01T00:00:00Z".to_string(),
+                report_data: None,
+                request_id: 1,
+                seq_no: 0,
+                tbc: None,
+            })
+            .await
+    });
+
+    let frame = recv_frame(&mut peer_source).await;
+    assert_eq!(frame[0], 2);
+    assert_eq!(frame[2], "NotifyReport");
+    let message_id = frame[1].as_str().unwrap().to_string();
+
+    let response = NotifyReportResponse { custom_data: None };
+    let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
+    peer_sink.send(result_frame).await.unwrap();
+
+    call.await.unwrap().unwrap();
 }
 
 #[tokio::test]

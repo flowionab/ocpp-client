@@ -11,30 +11,32 @@ shared by every OCPP version, with a transport abstraction so WebSocket isn't th
 
 ## Status: 1.6 + 2.0.1 + 2.1, WebSocket only, no_std+alloc capable
 
-- **OCPP 1.6, 2.0.1, and 2.1** are all implemented and tested end to end, all three in `default` features.
-  2.1 mirrors `src/ocpp_2_0_1/` exactly (`src/ocpp_2_1/{mod,error,actions}.rs`, `OCPP2_1Client`,
-  `connect_2_1()`) - `OCPP2_1Error` reuses the same RPC framework error codes as `OCPP2_0_1Error` (OCPP-J's
-  envelope/error-code set didn't change between 2.0.1 and 2.1). One action is missing:
-  **`NotifyReport` has no `ocpp_2_1_action!` entry** because `rust-ocpp`'s
-  `wip_v2_1::messages::notify_report` module is still an empty file upstream (confirmed by reading the
-  fork's checked-out source, not just its feature flag - the same trap the crate's `Cargo.toml` used to warn
-  about before this was ported). Add the `NotifyReportRequest`/`NotifyReportResponse` macro invocation once
-  that lands upstream; every other 2.1 action (85 total minus `NotifyReport`) is wired up. `rust-ocpp`'s
-  `Cargo.toml` still calls `wip_v2_1` "not quite ready for use yet," but in practice only that one action is
-  actually blocked - re-verify against the fork's current `src/v2_1/messages/` if bumping the dependency.
+- **OCPP 1.6, 2.0.1, and 2.1** are all implemented and tested end to end, all three in `default` features,
+  every action wired up including `NotifyReport` for 2.1 (see the `ocpp-types` bullet below - this was
+  missing until the migration documented in `MIGRATION_OCPP_TYPES.md` closed the gap). 2.1 mirrors
+  `src/ocpp_2_0_1/` exactly (`src/ocpp_2_1/{mod,error,actions}.rs`, `OCPP2_1Client`, `connect_2_1()`) -
+  `OCPP2_1Error` reuses the same RPC framework error codes as `OCPP2_0_1Error` (OCPP-J's envelope/error-code
+  set didn't change between 2.0.1 and 2.1). One 2.1 action, `NotifyPeriodicEventStream`, is modeled as a
+  call/response pair even though the spec defines it as SEND-only (no CALLRESULT) - `Client`'s engine has no
+  SEND-frame support yet; see the comment above its `ocpp_2_1_action!` invocation in
+  `src/ocpp_2_1/actions.rs` for the tradeoff.
 - **WebSocket is the only transport.** The engine (`Client<E>`) is transport-agnostic via the `Transport{Sink,Stream}`
   traits, but no second transport (e.g. an embedded framed link) exists yet.
-- **The `rust-ocpp` dependency is a fork**, not the crates.io release: `rust-ocpp = { git =
-  "https://github.com/flowionab/rust-ocpp" }` in `Cargo.toml`. The upstream crate on crates.io is NOT no_std
-  viable - confirmed via `cargo tree`, it unconditionally pulls in `jsonschema`/`reqwest`/`hyper`/`tokio` plus
-  `validator` (used via `#[derive(Validate)]` across ~243 files) which itself unconditionally requires
-  `url`/`idna`/`regex(std)`. The fork removes all of that: `jsonschema`/`reqwest`/`hyper` are gone entirely,
-  and `validator`/`regex` are optional, gated behind the fork's own `std` feature
-  (`#[cfg_attr(feature = "std", derive(validator::Validate))]` on every message struct) - confirmed via
-  `cargo tree --no-default-features --features ocpp_1_6`, which no longer shows any of them. It also has a
-  real, working `wip_v2_1` feature (unlike the crates.io release, where `v2_1`'s Cargo feature is commented
-  out even though the module source exists). Our own `std` Cargo feature now forwards to `rust-ocpp/std`.
-  If bumping this dependency, re-verify with `cargo tree` that none of the removed deps have crept back in.
+- **Message types come from `ocpp-types`** (crates.io, `flowionab` org, currently `0.1.1`), not the
+  earlier `rust-ocpp` fork - see `MIGRATION_OCPP_TYPES.md` for the full migration history, including a
+  real codegen bug found and fixed upstream mid-migration (0.1.0 → 0.1.1: colliding inline-enum names in
+  the 1.6 schema). `ocpp-types` is `no_std`, allocation-free by default (`heapless`-backed bounded types
+  generated from the official JSON schemas per version), with an `alloc` feature - enabled unconditionally
+  in this crate's `[dependencies]`, regardless of this crate's own `std` status - that turns
+  spec-unbounded fields into plain `alloc::String`/`Vec` instead of const-generic-sized `heapless`
+  collections. Bounded fields (e.g. `IdTag`) stay `heapless::String<N>` either way, which is the one
+  API-shape difference from the old `rust-ocpp`-based types: construction goes through fallible
+  `TryFrom`/`heapless::String::try_from(..)` rather than a bare string. `ocpp-types` has no per-version
+  cargo features (`v16`/`v201`/`v21` always compile in) - this crate's own `ocpp_1_6`/`ocpp_2_0_1`/
+  `ocpp_2_1` features just gate its own `src/ocpp_{1_6,2_0_1,2_1}/` modules, nothing to forward to.
+  Its `serde` feature derives ordinary `serde::Serialize`/`Deserialize` (ordinary enough that this crate's
+  existing `serde_json::Value`-based dynamic dispatch in `client.rs` needed no changes at all); its
+  `serde-json-core` no-alloc JSON helpers on `Action` are unused here.
 - **`no_std`+`alloc` works now.** `src/client.rs` no longer hard-depends on tokio or `async-trait`.
   `cargo build --lib --no-default-features --features ocpp_1_6` (or `ocpp_2_0_1`) compiles the engine with
   `std` off entirely - that's the standing proof this stays true; re-run it after touching `client.rs`,
@@ -70,8 +72,8 @@ shared by every OCPP version, with a transport abstraction so WebSocket isn't th
     crate, so `tracing-test`'s default per-crate env filter would otherwise filter out `ocpp_client`'s own
     events).
   - True bare-metal no_std (no `alloc`) is still out of scope - the engine's `BTreeMap`/`VecDeque`/`Arc`-based
-    bookkeeping is alloc-dependent by design, matching `rust-ocpp`'s own no_std+alloc (not no_std+no_alloc)
-    support.
+    bookkeeping is alloc-dependent by design. `ocpp-types` itself supports no_std+no_alloc (its `alloc`
+    feature is opt-in, not required), but this crate always enables it - see the `ocpp-types` bullet above.
 
 ## Architecture
 
@@ -120,18 +122,20 @@ proof this design does what it was meant to.
 
 ### Adding a new OCPP action to 1.6
 
-Add one `ocpp_1_6_action!(...)` line in `src/ocpp_1_6/actions.rs` with the action's `rust_ocpp` request/response
-types. Write the test first (a `tests/ocpp_1_6_fake_transport.rs`-style test is enough; no need for a real
-WebSocket round-trip per action - one real-transport test already covers that wiring).
+Add one `ocpp_1_6_action!(...)` line in `src/ocpp_1_6/actions.rs` with the action's `ocpp_types::v16`
+request/response types. Write the test first (a `tests/ocpp_1_6_fake_transport.rs`-style test is enough; no
+need for a real WebSocket round-trip per action - one real-transport test already covers that wiring).
 
-### Adding a new OCPP action to 2.1 (e.g. once `NotifyReport` lands upstream)
+### Adding a new OCPP action to 2.0.1/2.1
 
-Same as 1.6: add one `ocpp_2_1_action!(...)` line in `src/ocpp_2_1/actions.rs` with the action's `rust_ocpp`
-request/response types from `rust_ocpp::v2_1::messages::<module>`. Action name string = the struct name
-minus its `Request`/`Response` suffix; `send_x`/`on_x`/`wait_for_x` method names are the snake_case of that
-same name (the existing invocations in that file are the reference for edge cases like acronym runs -
-`Get15118EVCertificate` → `get_15118_ev_certificate`, `ClearDERControl` → `clear_der_control`). Write the
-test first, same TDD rule as every other version.
+Same as 1.6: add one `ocpp_2_0_1_action!(...)`/`ocpp_2_1_action!(...)` line in the matching `actions.rs`
+with the action's `ocpp_types::v201`/`ocpp_types::v21` request/response types. Nested enum/field types
+(e.g. `ResetRequestType`, or a version's `RpcErrorCode`) live under that version's `common` submodule, not
+re-exported at the version root - only the top-level Request/Response structs are. Action name string = the
+struct name minus its `Request`/`Response` suffix; `send_x`/`on_x`/`wait_for_x` method names are the
+snake_case of that same name (the existing invocations in each file are the reference for edge cases like
+acronym runs - `Get15118EVCertificate` → `get_15118_ev_certificate`, `ClearDERControl` →
+`clear_der_control`). Write the test first, same TDD rule as every other version.
 
 ## TDD is mandatory
 

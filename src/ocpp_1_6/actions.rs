@@ -3,68 +3,26 @@ use crate::error::ClientError;
 use crate::ocpp_1_6::OCPP1_6Client;
 use crate::ocpp_1_6::error::OCPP1_6Error;
 use core::future::Future;
-use rust_ocpp::v1_6::messages::authorize::{AuthorizeRequest, AuthorizeResponse};
-use rust_ocpp::v1_6::messages::boot_notification::{
-    BootNotificationRequest, BootNotificationResponse,
-};
-use rust_ocpp::v1_6::messages::cancel_reservation::{
-    CancelReservationRequest, CancelReservationResponse,
-};
-use rust_ocpp::v1_6::messages::change_availability::{
-    ChangeAvailabilityRequest, ChangeAvailabilityResponse,
-};
-use rust_ocpp::v1_6::messages::change_configuration::{
-    ChangeConfigurationRequest, ChangeConfigurationResponse,
-};
-use rust_ocpp::v1_6::messages::clear_cache::{ClearCacheRequest, ClearCacheResponse};
-use rust_ocpp::v1_6::messages::clear_charging_profile::{
-    ClearChargingProfileRequest, ClearChargingProfileResponse,
-};
-use rust_ocpp::v1_6::messages::data_transfer::{DataTransferRequest, DataTransferResponse};
-use rust_ocpp::v1_6::messages::diagnostics_status_notification::{
+use ocpp_types::v16::{
+    AuthorizeRequest, AuthorizeResponse, BootNotificationRequest, BootNotificationResponse,
+    CancelReservationRequest, CancelReservationResponse, ChangeAvailabilityRequest,
+    ChangeAvailabilityResponse, ChangeConfigurationRequest, ChangeConfigurationResponse,
+    ClearCacheRequest, ClearCacheResponse, ClearChargingProfileRequest,
+    ClearChargingProfileResponse, DataTransferRequest, DataTransferResponse,
     DiagnosticsStatusNotificationRequest, DiagnosticsStatusNotificationResponse,
-};
-use rust_ocpp::v1_6::messages::firmware_status_notification::{
     FirmwareStatusNotificationRequest, FirmwareStatusNotificationResponse,
+    GetCompositeScheduleRequest, GetCompositeScheduleResponse, GetConfigurationRequest,
+    GetConfigurationResponse, GetDiagnosticsRequest, GetDiagnosticsResponse,
+    GetLocalListVersionRequest, GetLocalListVersionResponse, HeartbeatRequest, HeartbeatResponse,
+    MeterValuesRequest, MeterValuesResponse, RemoteStartTransactionRequest,
+    RemoteStartTransactionResponse, RemoteStopTransactionRequest, RemoteStopTransactionResponse,
+    ReserveNowRequest, ReserveNowResponse, ResetRequest, ResetResponse, SendLocalListRequest,
+    SendLocalListResponse, SetChargingProfileRequest, SetChargingProfileResponse,
+    StartTransactionRequest, StartTransactionResponse, StatusNotificationRequest,
+    StatusNotificationResponse, StopTransactionRequest, StopTransactionResponse,
+    TriggerMessageRequest, TriggerMessageResponse, UnlockConnectorRequest, UnlockConnectorResponse,
+    UpdateFirmwareRequest, UpdateFirmwareResponse,
 };
-use rust_ocpp::v1_6::messages::get_composite_schedule::{
-    GetCompositeScheduleRequest, GetCompositeScheduleResponse,
-};
-use rust_ocpp::v1_6::messages::get_configuration::{
-    GetConfigurationRequest, GetConfigurationResponse,
-};
-use rust_ocpp::v1_6::messages::get_diagnostics::{GetDiagnosticsRequest, GetDiagnosticsResponse};
-use rust_ocpp::v1_6::messages::get_local_list_version::{
-    GetLocalListVersionRequest, GetLocalListVersionResponse,
-};
-use rust_ocpp::v1_6::messages::heart_beat::{HeartbeatRequest, HeartbeatResponse};
-use rust_ocpp::v1_6::messages::meter_values::{MeterValuesRequest, MeterValuesResponse};
-use rust_ocpp::v1_6::messages::remote_start_transaction::{
-    RemoteStartTransactionRequest, RemoteStartTransactionResponse,
-};
-use rust_ocpp::v1_6::messages::remote_stop_transaction::{
-    RemoteStopTransactionRequest, RemoteStopTransactionResponse,
-};
-use rust_ocpp::v1_6::messages::reserve_now::{ReserveNowRequest, ReserveNowResponse};
-use rust_ocpp::v1_6::messages::reset::{ResetRequest, ResetResponse};
-use rust_ocpp::v1_6::messages::send_local_list::{SendLocalListRequest, SendLocalListResponse};
-use rust_ocpp::v1_6::messages::set_charging_profile::{
-    SetChargingProfileRequest, SetChargingProfileResponse,
-};
-use rust_ocpp::v1_6::messages::start_transaction::{
-    StartTransactionRequest, StartTransactionResponse,
-};
-use rust_ocpp::v1_6::messages::status_notification::{
-    StatusNotificationRequest, StatusNotificationResponse,
-};
-use rust_ocpp::v1_6::messages::stop_transaction::{
-    StopTransactionRequest, StopTransactionResponse,
-};
-use rust_ocpp::v1_6::messages::trigger_message::{TriggerMessageRequest, TriggerMessageResponse};
-use rust_ocpp::v1_6::messages::unlock_connector::{
-    UnlockConnectorRequest, UnlockConnectorResponse,
-};
-use rust_ocpp::v1_6::messages::update_firmware::{UpdateFirmwareRequest, UpdateFirmwareResponse};
 
 /// Declares one OCPP 1.6 action: a zero-sized marker type implementing [`Action`], plus
 /// `send_x`/`on_x`/`wait_for_x` convenience methods on [`OCPP1_6Client`] that just call the

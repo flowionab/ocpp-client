@@ -5,7 +5,7 @@
 #![allow(clippy::result_large_err)]
 use futures::{SinkExt, StreamExt};
 use ocpp_client::{ConnectOptions, ReconnectBehavior, ReconnectPolicy, connect_1_6};
-use rust_ocpp::v1_6::messages::heart_beat::HeartbeatRequest;
+use ocpp_types::v16::HeartbeatRequest;
 use serde_json::{Value, json};
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -65,16 +65,13 @@ async fn client_reconnects_after_the_connection_drops() {
         .unwrap();
 
     let first = client.send_heartbeat(HeartbeatRequest {}).await.unwrap();
-    assert_eq!(first.current_time.to_rfc3339(), "2024-01-01T00:00:00+00:00");
+    assert_eq!(first.current_time, "2024-01-01T00:00:00Z");
 
     // Give the background read loop time to notice the close and redial before we send again.
     tokio::time::sleep(Duration::from_millis(300)).await;
 
     let second = client.send_heartbeat(HeartbeatRequest {}).await.unwrap();
-    assert_eq!(
-        second.current_time.to_rfc3339(),
-        "2024-01-01T00:00:00+00:00"
-    );
+    assert_eq!(second.current_time, "2024-01-01T00:00:00Z");
 
     server.await.unwrap();
 }

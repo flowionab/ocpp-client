@@ -29,7 +29,11 @@ pub mod ocpp_2_0_1;
 #[cfg(feature = "ocpp_2_1")]
 pub mod ocpp_2_1;
 
-pub use rust_ocpp;
+/// Re-exported so callers can name request/response types (e.g.
+/// `ocpp_client::ocpp_types::v16::HeartbeatRequest`) using the exact `ocpp-types` version this
+/// crate was compiled against, without needing to pin a matching version in their own
+/// `Cargo.toml` - same rationale as the `rustls` re-export below.
+pub use ocpp_types;
 
 pub use action::Action;
 pub use client::Client;

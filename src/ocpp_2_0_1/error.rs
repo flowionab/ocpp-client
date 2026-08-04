@@ -2,68 +2,83 @@ use crate::error::ProtocolError;
 use alloc::format;
 use alloc::string::{String, ToString};
 use core::fmt;
+use ocpp_types::v201::RpcErrorCode;
 use serde_json::{Value, json};
 
-macro_rules! define_error {
-    ($($variant:ident => $code:literal),+ $(,)?) => {
-        /// An OCPP 2.0.1 CALLERROR, one variant per error code defined by the spec.
-        #[derive(Debug, Clone)]
-        pub enum OCPP2_0_1Error {
-            $(
-                #[doc = $code]
-                $variant { description: String, details: Value }
-            ),+
-        }
-
-        impl ProtocolError for OCPP2_0_1Error {
-            fn code(&self) -> &str {
-                match self {
-                    $(OCPP2_0_1Error::$variant { .. } => $code),+
-                }
-            }
-
-            fn description(&self) -> &str {
-                match self {
-                    $(OCPP2_0_1Error::$variant { description, .. } => description),+
-                }
-            }
-
-            fn details(&self) -> &Value {
-                match self {
-                    $(OCPP2_0_1Error::$variant { details, .. } => details),+
-                }
-            }
-
-            fn not_implemented(action: &str) -> Self {
-                OCPP2_0_1Error::NotImplemented {
-                    description: format!("Action '{action}' is not implemented"),
-                    details: json!({}),
-                }
-            }
-
-            fn from_wire(code: &str, description: &str, details: Value) -> Self {
-                match code {
-                    $($code => OCPP2_0_1Error::$variant { description: description.to_string(), details }),+,
-                    _ => OCPP2_0_1Error::GenericError { description: description.to_string(), details },
-                }
-            }
-        }
-    };
+/// An OCPP 2.0.1 CALLERROR: the RPC framework error code from
+/// [`ocpp_types::v201::RpcErrorCode`], paired with the free-text description and details a
+/// CALLERROR frame carries alongside it (the spec leaves `errorDetails`'s shape undefined, so
+/// this crate keeps it as a raw `Value` rather than a typed field).
+#[derive(Debug, Clone)]
+pub struct OCPP2_0_1Error {
+    pub code: RpcErrorCode,
+    pub description: String,
+    pub details: Value,
 }
 
-define_error! {
-    FormatViolation => "FormatViolation",
-    GenericError => "GenericError",
-    InternalError => "InternalError",
-    MessageTypeNotSupported => "MessageTypeNotSupported",
-    NotImplemented => "NotImplemented",
-    NotSupported => "NotSupported",
-    OccurrenceConstraintViolation => "OccurrenceConstraintViolation",
-    PropertyConstraintViolation => "PropertyConstraintViolation",
-    ProtocolError => "ProtocolError",
-    RpcFrameworkError => "RpcFrameworkError",
-    SecurityError => "SecurityError",
-    TypeConstraintViolation => "TypeConstraintViolation",
+/// The exact wire spelling for each code, per the OCPP-J 2.0.1 specification's RPC framework
+/// error code table - `RpcErrorCode`'s serde impl already produces this, but
+/// `ProtocolError::code` returns a borrowed `&str` rather than allocating, so this mirrors it
+/// as a `match` instead of going through serialization.
+fn wire_code(code: RpcErrorCode) -> &'static str {
+    match code {
+        RpcErrorCode::FormatViolation => "FormatViolation",
+        RpcErrorCode::GenericError => "GenericError",
+        RpcErrorCode::InternalError => "InternalError",
+        RpcErrorCode::MessageTypeNotSupported => "MessageTypeNotSupported",
+        RpcErrorCode::NotImplemented => "NotImplemented",
+        RpcErrorCode::NotSupported => "NotSupported",
+        RpcErrorCode::OccurrenceConstraintViolation => "OccurrenceConstraintViolation",
+        RpcErrorCode::PropertyConstraintViolation => "PropertyConstraintViolation",
+        RpcErrorCode::ProtocolError => "ProtocolError",
+        RpcErrorCode::RpcFrameworkError => "RpcFrameworkError",
+        RpcErrorCode::SecurityError => "SecurityError",
+        RpcErrorCode::TypeConstraintViolation => "TypeConstraintViolation",
+    }
+}
+
+impl ProtocolError for OCPP2_0_1Error {
+    fn code(&self) -> &str {
+        wire_code(self.code)
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
+    fn details(&self) -> &Value {
+        &self.details
+    }
+
+    fn not_implemented(action: &str) -> Self {
+        OCPP2_0_1Error {
+            code: RpcErrorCode::NotImplemented,
+            description: format!("Action '{action}' is not implemented"),
+            details: json!({}),
+        }
+    }
+
+    fn from_wire(code: &str, description: &str, details: Value) -> Self {
+        let code = match code {
+            "FormatViolation" => RpcErrorCode::FormatViolation,
+            "InternalError" => RpcErrorCode::InternalError,
+            "MessageTypeNotSupported" => RpcErrorCode::MessageTypeNotSupported,
+            "NotImplemented" => RpcErrorCode::NotImplemented,
+            "NotSupported" => RpcErrorCode::NotSupported,
+            "OccurrenceConstraintViolation" => RpcErrorCode::OccurrenceConstraintViolation,
+            "PropertyConstraintViolation" => RpcErrorCode::PropertyConstraintViolation,
+            "ProtocolError" => RpcErrorCode::ProtocolError,
+            "RpcFrameworkError" => RpcErrorCode::RpcFrameworkError,
+            "SecurityError" => RpcErrorCode::SecurityError,
+            "TypeConstraintViolation" => RpcErrorCode::TypeConstraintViolation,
+            _ => RpcErrorCode::GenericError,
+        };
+        OCPP2_0_1Error {
+            code,
+            description: description.to_string(),
+            details,
+        }
+    }
 }
 
 impl fmt::Display for OCPP2_0_1Error {
