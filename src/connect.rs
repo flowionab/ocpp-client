@@ -35,6 +35,126 @@ pub struct ConnectOptions<'a> {
     pub tls_config: Option<Arc<rustls::ClientConfig>>,
 }
 
+/// A `Client` for whichever OCPP version the server actually picked when connecting via
+/// [`connect`]. Which variants exist depends on which `ocpp_1_6`/`ocpp_2_0_1`/`ocpp_2_1` features
+/// are enabled, same as the version-specific `connect_*` functions.
+pub enum NegotiatedClient {
+    #[cfg(feature = "ocpp_1_6")]
+    V1_6(crate::ocpp_1_6::OCPP1_6Client),
+    #[cfg(feature = "ocpp_2_0_1")]
+    V2_0_1(crate::ocpp_2_0_1::OCPP2_0_1Client),
+    #[cfg(feature = "ocpp_2_1")]
+    V2_1(crate::ocpp_2_1::OCPP2_1Client),
+}
+
+/// An OCPP version `connect` can offer/accept. Only variants for features enabled in this
+/// build exist, same as `NegotiatedClient`'s variants.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OcppVersion {
+    #[cfg(feature = "ocpp_1_6")]
+    V1_6,
+    #[cfg(feature = "ocpp_2_0_1")]
+    V2_0_1,
+    #[cfg(feature = "ocpp_2_1")]
+    V2_1,
+}
+
+impl OcppVersion {
+    fn protocol(self) -> &'static str {
+        match self {
+            #[cfg(feature = "ocpp_1_6")]
+            OcppVersion::V1_6 => "ocpp1.6",
+            #[cfg(feature = "ocpp_2_0_1")]
+            OcppVersion::V2_0_1 => "ocpp2.0.1",
+            #[cfg(feature = "ocpp_2_1")]
+            OcppVersion::V2_1 => "ocpp2.1",
+        }
+    }
+
+    /// Every version compiled into this build, newest first - `connect`'s default set of
+    /// versions to offer when the caller doesn't restrict it via the `versions` argument.
+    #[allow(clippy::vec_init_then_push)]
+    fn all_compiled_in() -> Vec<OcppVersion> {
+        let mut versions = Vec::new();
+        #[cfg(feature = "ocpp_2_1")]
+        versions.push(OcppVersion::V2_1);
+        #[cfg(feature = "ocpp_2_0_1")]
+        versions.push(OcppVersion::V2_0_1);
+        #[cfg(feature = "ocpp_1_6")]
+        versions.push(OcppVersion::V1_6);
+        versions
+    }
+}
+
+/// Connect to an OCPP server over WebSocket, offering the given `versions` (or, if `None`,
+/// every version compiled into this crate via its `ocpp_1_6`/`ocpp_2_0_1`/`ocpp_2_1` features)
+/// in the `Sec-WebSocket-Protocol` header, and using whichever one the server picks - rather
+/// than requiring the caller to already know the server's supported version like
+/// `connect_1_6`/`connect_2_0_1`/`connect_2_1` do. `versions` also controls preference order
+/// (offered in the slice's order); the choice among the offered set is entirely the server's
+/// per RFC 6455.
+pub async fn connect(
+    address: &str,
+    versions: Option<&[OcppVersion]>,
+    options: Option<ConnectOptions<'_>>,
+) -> Result<NegotiatedClient, Box<dyn std::error::Error + Send + Sync>> {
+    let all_compiled_in;
+    let versions = match versions {
+        Some(versions) => versions,
+        None => {
+            all_compiled_in = OcppVersion::all_compiled_in();
+            &all_compiled_in
+        }
+    };
+    let offered = versions
+        .iter()
+        .map(|v| v.protocol())
+        .collect::<Vec<_>>()
+        .join(", ");
+    let (stream, negotiated) = setup_socket(address, &offered, options.clone()).await?;
+    let protocol = versions
+        .iter()
+        .find(|v| v.protocol() == negotiated)
+        .map(|v| v.protocol())
+        .ok_or_else(|| format!("Server negotiated unsupported protocol: {negotiated}"))?;
+    let (timeout, reconnector, policy) = prepare(address, protocol, options);
+    let (sink, source) = crate::transport::websocket::split(stream);
+
+    Ok(match protocol {
+        #[cfg(feature = "ocpp_1_6")]
+        "ocpp1.6" => NegotiatedClient::V1_6(crate::Client::from_transport_with_reconnect(
+            sink,
+            source,
+            timeout,
+            Box::new(crate::runtime::tokio::TokioExecutor),
+            Box::new(crate::runtime::tokio::TokioTimer),
+            reconnector,
+            policy,
+        )),
+        #[cfg(feature = "ocpp_2_0_1")]
+        "ocpp2.0.1" => NegotiatedClient::V2_0_1(crate::Client::from_transport_with_reconnect(
+            sink,
+            source,
+            timeout,
+            Box::new(crate::runtime::tokio::TokioExecutor),
+            Box::new(crate::runtime::tokio::TokioTimer),
+            reconnector,
+            policy,
+        )),
+        #[cfg(feature = "ocpp_2_1")]
+        "ocpp2.1" => NegotiatedClient::V2_1(crate::Client::from_transport_with_reconnect(
+            sink,
+            source,
+            timeout,
+            Box::new(crate::runtime::tokio::TokioExecutor),
+            Box::new(crate::runtime::tokio::TokioTimer),
+            reconnector,
+            policy,
+        )),
+        _ => unreachable!("protocol only ever holds a value returned by OcppVersion::protocol"),
+    })
+}
+
 /// Connect to an OCPP 1.6 server over WebSocket.
 #[cfg(feature = "ocpp_1_6")]
 pub async fn connect_1_6(
