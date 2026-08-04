@@ -1,0 +1,39 @@
+[package]
+edition = '2024'
+name = "ocpp-transport-embassy-net"
+version = "0.1.0-alpha.1"
+description = "no_std OCPP-over-WebSocket transport for ocpp-client, built on embassy-net. Chip-agnostic - pair with a board-specific crate that brings up embassy-net's Stack for your MCU/PHY."
+repository = "https://github.com/flowionab/ocpp-client"
+license = "MIT OR Apache-2.0"
+authors = ["Joatin Granlund <joatin@granlund.io>"]
+keywords = ["OCPP", "embedded", "embassy", "websocket", "no_std"]
+
+[dependencies]
+# Path dependency during development; switch to a version/git dependency once ocpp-client is
+# published. default-features = false, no other features enabled: we only need the always-on
+# TransportSink/TransportStream/Executor/Timer/Reconnector traits (src/transport.rs,
+# src/runtime.rs, src/reconnect.rs in ocpp-client), not any OCPP-version action set, the tokio
+# runtime, or the tokio-tungstenite-based websocket feature.
+ocpp-client = { path = "../..", default-features = false }
+
+embassy-net = { version = "0.9", default-features = false, features = ["tcp", "proto-ipv4", "medium-ethernet"] }
+embassy-executor = { version = "0.10", default-features = false }
+embassy-time = { version = "0.5", default-features = false }
+embassy-sync = { version = "0.8", default-features = false }
+critical-section = { version = "1" }
+
+# no_std websocket framing (handshake request/response building + frame encode/decode). We use
+# the sans-io `WebSocket` core directly (not the `framer_async` module) so we can drive it over
+# embassy-net's TcpReader/TcpWriter halves without an extra futures::Sink/Stream adapter layer.
+embedded-websocket = { version = "0.9", default-features = false }
+
+# RngCore bound for embedded-websocket's client-side frame masking (RFC6455 requires masking on
+# every client->server frame). `alloc` feature so `Box<dyn RngCore + Send>` implements RngCore,
+# letting callers plug in any RNG (e.g. a HAL-specific hardware RNG) without a generic parameter
+# propagating through every type in this crate.
+rand_core = { version = "0.6", default-features = false, features = ["alloc"] }
+
+# Same structured-logging story as ocpp-client itself (see its CLAUDE.md/Cargo.toml): no_std,
+# used unconditionally, no Subscriber installed here - the firmware wires up its own (e.g. a
+# defmt/RTT-backed one).
+tracing = { version = "0.1.44", default-features = false }

@@ -50,8 +50,30 @@ Gaps to close before pointing real hardware/fleets at this crate, in priority or
 6. **README overclaims embedded transport support.** It advertises "STM32-compatible
    transport layer" / "STM32 transport: ✅ Supported," but only the WebSocket transport
    actually exists. `no_std`+`alloc` compiles and the `TransportSink`/`TransportStream` traits
-   exist to build one against, but no embedded transport implementation ships today. Fix the
-   claim or ship the transport.
+   exist to build one against, but no embedded transport implementation ships today. **In
+   progress.** `crates/ocpp-transport-embassy-net` (new workspace member) is a chip-agnostic
+   `no_std`+`alloc` WebSocket transport over `embassy-net`, built on `embedded-websocket`'s
+   sans-io core - `cargo check`/`clippy -D warnings` pass against the real
+   `thumbv7em-none-eabihf` target (see that crate's README for the exact commands), but it has
+   not been run against real hardware or a real CSMS yet, has no TLS support, and simplifies the
+   WebSocket close handshake (no close-reply frame sent). Checking it against a real embedded
+   target (not just the host, which the top-level `no_std` CI job only does) surfaced two things
+   worth knowing about `ocpp-client` itself, documented in the new crate's README:
+   - `uuid`'s `v4` feature (used for OCPP-J message IDs) pulls in `getrandom`, which has no
+     backend on bare-metal `thumbv7em-none-eabihf` without the firmware binary opting into
+     getrandom's "custom backend" mechanism (`--cfg getrandom_backend="custom"` plus a
+     hardware-RNG-backed extern fn) - invisible from `ocpp-client`'s own no_std CI job, which
+     builds for the host, where a real OS-provided entropy source always exists.
+   - `ocpp_client::Executor`/`Reconnector` are declared `Send + Sync + 'static` (right for
+     tokio's multi-threaded model, which is the only `Executor` impl that exists today) but
+     `embassy_executor::Spawner`/`embassy_net::Stack` are deliberately `!Sync` (`Spawner` is
+     `!Send` too) since embassy's single-core cooperative executor has no real concurrent access
+     to guard against. The new crate bridges this with a handful of documented `unsafe impl
+     Send`/`Sync` assertions rather than a design change in `ocpp-client` itself; still worth
+     being aware this trait boundary was written with only a multi-threaded runtime in mind.
+   Still needed: an STM32H723-specific board-support crate (Ethernet MAC/PHY bring-up via
+   `embassy-stm32`) wiring into this transport, then hardware-in-the-loop testing, then TLS -
+   see that crate's README's "Next steps".
 
 7. ~~**No structured logging/telemetry.**~~ **Done.** Every diagnostic in `client.rs` (malformed
    frames, unparsable CALL/CALLRESULT/CALLERROR, failed response encode/send, reconnect
