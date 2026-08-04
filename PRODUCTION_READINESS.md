@@ -50,9 +50,18 @@ Gaps to close before pointing real hardware/fleets at this crate, in priority or
    exist to build one against, but no embedded transport implementation ships today. Fix the
    claim or ship the transport.
 
-7. **No structured logging/telemetry.** Diagnostics go through `eprintln!` gated on `std`,
-   no `log`/`defmt`/`tracing` facade. Fine for a hobby project, awkward for production ops
-   (no log levels, nothing embedded targets can hook into).
+7. ~~**No structured logging/telemetry.**~~ **Done.** Every diagnostic in `client.rs` (malformed
+   frames, unparsable CALL/CALLRESULT/CALLERROR, failed response encode/send, reconnect
+   attempts and successes) now goes through the `tracing` crate (`warn!`/`error!`/`info!` with
+   structured fields, e.g. `error = %err`, `attempt`) instead of a bare `std`-gated `eprintln!`.
+   `tracing` is `#![no_std]` itself and used unconditionally - not gated behind our `std`
+   feature - so these events fire under `no_std`+`alloc` too; our `std` feature now forwards to
+   `tracing/std` for thread-local dispatch. This crate never installs a global `Subscriber`
+   itself (that's the application's job - `tracing-subscriber`'s `fmt` layer on std, a
+   `defmt`/RTT-backed one on embedded), so there's zero behavior change for anyone not already
+   listening. Covered by `tests/ocpp_1_6_logging.rs` (`tracing-test`, dev-only, with its
+   `no-env-filter` feature - required because `tests/*.rs` integration tests are each their own
+   crate, so the default per-crate env filter would otherwise hide `ocpp_client`'s events).
 
 8. ~~**TLS trust config isn't exposed.**~~ **Done.** `ConnectOptions::tls_config: Option<Arc<rustls::ClientConfig>>`
    lets callers supply their own `rustls::ClientConfig` (custom root CA, mTLS client certs,

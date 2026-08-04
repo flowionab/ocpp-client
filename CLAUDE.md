@@ -59,9 +59,16 @@ shared by every OCPP version, with a transport abstraction so WebSocket isn't th
     `mpsc::channel(1000)`, and the ping fan-out (`BroadcastRegistry`) gives each subscriber a single-slot
     `Signal` rather than tokio broadcast's buffered channel - a slow `on_ping` subscriber sees only the
     latest ping, not a backlog, which is fine for a low-frequency keepalive.
-  - Diagnostic `eprintln!` calls in `client.rs` are gated `#[cfg(feature = "std")]` (silently dropped
-    otherwise) - no `log`/`defmt` facade wired up yet; that's a reasonable follow-up if embedded users need
-    that output surfaced.
+  - Diagnostics in `client.rs` go through the `tracing` crate (`tracing::warn!`/`error!`/`info!`), not a bare
+    `eprintln!` - `tracing` itself is `#![no_std]` and used unconditionally (not gated behind our `std`
+    feature), so these events fire the same way under `no_std`+`alloc` too. Our `std` feature forwards to
+    `tracing/std` (thread-local dispatch instead of tracing's no_std global-only dispatch); either way, no
+    events go anywhere unless the *application* installs a `tracing::Subscriber` (e.g. `tracing-subscriber`'s
+    `fmt` layer on std, or a `defmt`/RTT-backed one on embedded) - this crate only emits events, it never
+    installs a global subscriber itself. See `tests/ocpp_1_6_logging.rs` for how to capture them in a test
+    (`tracing-test` with its `no-env-filter` feature - required because `tests/*.rs` files are each their own
+    crate, so `tracing-test`'s default per-crate env filter would otherwise filter out `ocpp_client`'s own
+    events).
   - True bare-metal no_std (no `alloc`) is still out of scope - the engine's `BTreeMap`/`VecDeque`/`Arc`-based
     bookkeeping is alloc-dependent by design, matching `rust-ocpp`'s own no_std+alloc (not no_std+no_alloc)
     support.

@@ -151,12 +151,12 @@ impl<E: ProtocolError> Client<E> {
                         Ok((new_sink, new_stream)) => {
                             *read_sink.lock().await = new_sink;
                             stream = new_stream;
+                            tracing::info!(attempt, "ocpp-client: reconnected");
                             read_reconnect_registry.notify_all().await;
                             break;
                         }
-                        Err(_err) => {
-                            #[cfg(feature = "std")]
-                            std::eprintln!("ocpp-client: reconnect attempt failed: {_err}");
+                        Err(err) => {
+                            tracing::warn!(attempt, error = %err, "ocpp-client: reconnect attempt failed");
                             read_timer.delay(reconnect_policy.delay_for(attempt)).await;
                             attempt = attempt.saturating_add(1);
                         }
@@ -370,22 +370,19 @@ impl<E: ProtocolError> Client<E> {
         match frame {
             Ok(frame) => {
                 let mut lock = self.sink.lock().await;
-                if let Err(_err) = lock.send(frame).await {
-                    #[cfg(feature = "std")]
-                    std::eprintln!("ocpp-client: failed to send response: {_err}");
+                if let Err(err) = lock.send(frame).await {
+                    tracing::warn!(error = %err, "ocpp-client: failed to send response");
                 }
             }
-            Err(_err) => {
-                #[cfg(feature = "std")]
-                std::eprintln!("ocpp-client: failed to encode response: {_err}");
+            Err(err) => {
+                tracing::error!(error = %err, "ocpp-client: failed to encode response");
             }
         }
     }
 }
 
-fn log_send_error(_err: serde_json::Error) {
-    #[cfg(feature = "std")]
-    std::eprintln!("ocpp-client: failed to encode response payload: {_err}");
+fn log_send_error(err: serde_json::Error) {
+    tracing::error!(error = %err, "ocpp-client: failed to encode response payload");
 }
 
 async fn handle_frame<E: ProtocolError>(
@@ -396,26 +393,22 @@ async fn handle_frame<E: ProtocolError>(
 ) {
     let value: Value = match serde_json::from_str(frame) {
         Ok(v) => v,
-        Err(_err) => {
-            #[cfg(feature = "std")]
-            std::eprintln!("ocpp-client: received malformed frame: {_err}");
+        Err(err) => {
+            tracing::warn!(error = %err, "ocpp-client: received malformed frame");
             return;
         }
     };
 
     let Value::Array(items) = value else {
-        #[cfg(feature = "std")]
-        std::eprintln!("ocpp-client: a message should be a JSON array");
+        tracing::warn!("ocpp-client: a message should be a JSON array");
         return;
     };
     let Some(Value::Number(message_type)) = items.first() else {
-        #[cfg(feature = "std")]
-        std::eprintln!("ocpp-client: missing message type id");
+        tracing::warn!("ocpp-client: missing message type id");
         return;
     };
     let Some(message_type) = message_type.as_u64() else {
-        #[cfg(feature = "std")]
-        std::eprintln!("ocpp-client: message type id must be an integer");
+        tracing::warn!("ocpp-client: message type id must be an integer");
         return;
     };
 
@@ -423,9 +416,8 @@ async fn handle_frame<E: ProtocolError>(
         MESSAGE_TYPE_CALL => {
             let call: RawCall = match serde_json::from_str(frame) {
                 Ok(c) => c,
-                Err(_err) => {
-                    #[cfg(feature = "std")]
-                    std::eprintln!("ocpp-client: failed to parse CALL: {_err}");
+                Err(err) => {
+                    tracing::warn!(error = %err, "ocpp-client: failed to parse CALL");
                     return;
                 }
             };
@@ -458,9 +450,8 @@ async fn handle_frame<E: ProtocolError>(
         MESSAGE_TYPE_RESULT => {
             let result: RawResult = match serde_json::from_str(frame) {
                 Ok(r) => r,
-                Err(_err) => {
-                    #[cfg(feature = "std")]
-                    std::eprintln!("ocpp-client: failed to parse CALLRESULT: {_err}");
+                Err(err) => {
+                    tracing::warn!(error = %err, "ocpp-client: failed to parse CALLRESULT");
                     return;
                 }
             };
@@ -475,9 +466,8 @@ async fn handle_frame<E: ProtocolError>(
         MESSAGE_TYPE_ERROR => {
             let error: RawError = match serde_json::from_str(frame) {
                 Ok(e) => e,
-                Err(_err) => {
-                    #[cfg(feature = "std")]
-                    std::eprintln!("ocpp-client: failed to parse CALLERROR: {_err}");
+                Err(err) => {
+                    tracing::warn!(error = %err, "ocpp-client: failed to parse CALLERROR");
                     return;
                 }
             };
@@ -489,10 +479,8 @@ async fn handle_frame<E: ProtocolError>(
                 sender.send(Err(E::from_wire(&error.2, &error.3, error.4)));
             }
         }
-        #[allow(unused_variables)]
         other => {
-            #[cfg(feature = "std")]
-            std::eprintln!("ocpp-client: unknown message type id {other}");
+            tracing::warn!(message_type = other, "ocpp-client: unknown message type id");
         }
     }
 }
