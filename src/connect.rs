@@ -4,12 +4,13 @@ use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use core::future::Future;
 use core::pin::Pin;
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpStream;
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::Request;
 use tokio_tungstenite::tungstenite::http::header::{AUTHORIZATION, SEC_WEBSOCKET_PROTOCOL};
-use tokio_tungstenite::{MaybeTlsStream, WebSocketStream, client_async_tls};
+use tokio_tungstenite::{Connector, MaybeTlsStream, WebSocketStream, client_async_tls_with_config};
 use url::Url;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -23,6 +24,15 @@ pub struct ConnectOptions<'a> {
     /// connection drops. Defaults to `ReconnectBehavior::Enabled(ReconnectPolicy::default())` -
     /// set this to `ReconnectBehavior::Disabled` to get the old one-shot-connection behavior.
     pub reconnect: ReconnectBehavior,
+    /// Custom TLS trust config for `wss://` addresses. `None` (the default) uses
+    /// `tokio-tungstenite`'s built-in `rustls-tls-webpki-roots` default, which only trusts
+    /// public CAs - it cannot validate a CSMS certificate issued by a private/internal CA.
+    /// Build a `rustls::ClientConfig` with a `RootCertStore` containing that CA's certificate
+    /// (and optionally client-cert auth for mTLS) and set it here to connect to such a CSMS.
+    /// `ocpp_client::rustls` re-exports the exact `rustls` version this crate was built
+    /// against, so the `ClientConfig` you build is guaranteed compatible. Reconnect attempts
+    /// (see `reconnect` above) reuse the same config.
+    pub tls_config: Option<Arc<rustls::ClientConfig>>,
 }
 
 /// Connect to an OCPP 1.6 server over WebSocket.
@@ -106,6 +116,7 @@ fn prepare(
         .as_ref()
         .and_then(|o| o.password)
         .map(str::to_string);
+    let tls_config = options.as_ref().and_then(|o| o.tls_config.clone());
 
     match reconnect {
         ReconnectBehavior::Disabled => (timeout, None, ReconnectPolicy::default()),
@@ -115,19 +126,21 @@ fn prepare(
                 protocol,
                 username,
                 password,
+                tls_config,
             });
             (timeout, Some(reconnector), policy)
         }
     }
 }
 
-/// Redials `address` with the original protocol/credentials whenever `Client`'s background
-/// read loop needs a fresh transport after a disconnect.
+/// Redials `address` with the original protocol/credentials/TLS config whenever `Client`'s
+/// background read loop needs a fresh transport after a disconnect.
 struct WebSocketReconnector {
     address: String,
     protocol: &'static str,
     username: Option<String>,
     password: Option<String>,
+    tls_config: Option<Arc<rustls::ClientConfig>>,
 }
 
 impl Reconnector for WebSocketReconnector {
@@ -150,6 +163,7 @@ impl Reconnector for WebSocketReconnector {
                 password: self.password.as_deref(),
                 timeout: None,
                 reconnect: ReconnectBehavior::Disabled,
+                tls_config: self.tls_config.clone(),
             };
             let (stream, _protocol) =
                 setup_socket(&self.address, self.protocol, Some(options)).await?;
@@ -175,17 +189,20 @@ async fn setup_socket(
     request
         .headers_mut()
         .insert(SEC_WEBSOCKET_PROTOCOL, protocols.parse()?);
-    if let Some(options) = options
-        && let Some(username) = options.username
-    {
-        let data = format!("{}:{}", username, options.password.unwrap_or(""));
-        let encoded = BASE64_STANDARD.encode(data);
-        request
-            .headers_mut()
-            .insert(AUTHORIZATION, format!("Basic {encoded}").parse()?);
+    let mut tls_config = None;
+    if let Some(options) = options {
+        if let Some(username) = options.username {
+            let data = format!("{}:{}", username, options.password.unwrap_or(""));
+            let encoded = BASE64_STANDARD.encode(data);
+            request
+                .headers_mut()
+                .insert(AUTHORIZATION, format!("Basic {encoded}").parse()?);
+        }
+        tls_config = options.tls_config;
     }
 
-    let (stream, response) = client_async_tls(request, stream).await?;
+    let connector = tls_config.map(Connector::Rustls);
+    let (stream, response) = client_async_tls_with_config(request, stream, None, connector).await?;
 
     let protocol = response
         .headers()
