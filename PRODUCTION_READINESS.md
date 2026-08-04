@@ -120,3 +120,20 @@ Gaps to close before pointing real hardware/fleets at this crate, in priority or
    cert (i.e. the escape hatch doesn't weaken the default trust posture). `rcgen` (dev-only,
    `aws_lc_rs` backend to match `rustls`'s default and keep only one crypto provider in the
    graph) generates the test certificate.
+
+9. **True bare-metal no_std, no `alloc`.** `Client<E>`'s bookkeeping (`src/client.rs`) is
+   `alloc`-dependent by design: `Arc` for cross-task shared ownership, `BTreeMap` for the
+   pending-request/handler tables, `VecDeque` for pong waiters, `Box<dyn TransportSink/
+   TransportStream/Executor/Timer>` for the dyn-trait transport/runtime abstraction, plus
+   `String`/`format!` for error messages. `ocpp-types` itself supports no-alloc (bounded
+   `heapless` types), but this crate enables its `alloc` feature unconditionally regardless of
+   this crate's own `std` status. Closing this gap means replacing the above with fixed-capacity
+   `heapless` equivalents sized by const generics (bounding max in-flight requests, pong
+   waiters, subscribers, etc. at compile time) and turning the dyn-trait transport/executor
+   abstraction into a generic-parameter one instead - which cascades into `Client<E>`'s
+   single-generic design (see CLAUDE.md's `no_std`+`alloc` section for why the dyn-trait
+   approach was chosen). Not expected to move throughput - OCPP's request rate is low enough
+   that heap traffic here is nowhere near a hot path - the payoff would be deterministic
+   worst-case latency, no fragmentation risk over long uptimes, and static memory budgeting for
+   genuinely allocator-less embedded targets. No specific target driving this yet; tracked as a
+   future goal.
