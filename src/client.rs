@@ -33,6 +33,7 @@ pub struct Client<E: ProtocolError> {
     request_senders: RequestSenders,
     pong_waiters: PongWaiters,
     ping_registry: Arc<BroadcastRegistry>,
+    reconnect_registry: Arc<BroadcastRegistry>,
     executor: Arc<dyn Executor>,
     timer: Arc<dyn Timer>,
     timeout: Duration,
@@ -46,6 +47,7 @@ impl<E: ProtocolError> Clone for Client<E> {
             request_senders: self.request_senders.clone(),
             pong_waiters: self.pong_waiters.clone(),
             ping_registry: self.ping_registry.clone(),
+            reconnect_registry: self.reconnect_registry.clone(),
             executor: self.executor.clone(),
             timer: self.timer.clone(),
             timeout: self.timeout,
@@ -99,6 +101,7 @@ impl<E: ProtocolError> Client<E> {
         let request_senders: RequestSenders = Arc::new(SharedMutex::new(BTreeMap::new()));
         let pong_waiters: PongWaiters = Arc::new(SharedMutex::new(VecDeque::new()));
         let ping_registry = Arc::new(BroadcastRegistry::new());
+        let reconnect_registry = Arc::new(BroadcastRegistry::new());
         let executor: Arc<dyn Executor> = Arc::from(executor);
         let timer: Arc<dyn Timer> = Arc::from(timer);
 
@@ -106,6 +109,7 @@ impl<E: ProtocolError> Client<E> {
         let read_request_senders = request_senders.clone();
         let read_pong_waiters = pong_waiters.clone();
         let read_ping_registry = ping_registry.clone();
+        let read_reconnect_registry = reconnect_registry.clone();
         let read_sink = sink.clone();
         let read_timer = timer.clone();
 
@@ -147,6 +151,7 @@ impl<E: ProtocolError> Client<E> {
                         Ok((new_sink, new_stream)) => {
                             *read_sink.lock().await = new_sink;
                             stream = new_stream;
+                            read_reconnect_registry.notify_all().await;
                             break;
                         }
                         Err(_err) => {
@@ -166,6 +171,7 @@ impl<E: ProtocolError> Client<E> {
             request_senders,
             pong_waiters,
             ping_registry,
+            reconnect_registry,
             executor,
             timer,
             timeout,
@@ -267,6 +273,31 @@ impl<E: ProtocolError> Client<E> {
         mut callback: F,
     ) {
         let signal = self.ping_registry.subscribe().await;
+        let client = self.clone();
+        self.executor.spawn(Box::pin(async move {
+            loop {
+                signal.wait().await;
+                callback(client.clone()).await;
+            }
+        }));
+    }
+
+    /// Register a callback that fires every time the background read loop redials
+    /// successfully after a disconnect (see [`Client::from_transport_with_reconnect`]). Never
+    /// fires for the initial connection, only for later reconnects - the initial `Client` is
+    /// already handed back post-connect, so callers run their own post-connect setup (e.g.
+    /// `BootNotification`) right after `connect_1_6`/`from_transport_with_reconnect` returns.
+    /// This is the hook for redoing that setup (or resyncing any other session state) after a
+    /// dropped-and-restored connection; this crate does not re-run `BootNotification` or replay
+    /// any state on its own.
+    pub async fn on_reconnect<
+        F: FnMut(Self) -> FF + Send + Sync + 'static,
+        FF: Future<Output = ()> + Send,
+    >(
+        &self,
+        mut callback: F,
+    ) {
+        let signal = self.reconnect_registry.subscribe().await;
         let client = self.clone();
         self.executor.spawn(Box::pin(async move {
             loop {
