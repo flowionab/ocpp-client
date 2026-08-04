@@ -37,4 +37,4 @@ pub mod runtime;
 pub mod transport;
 
 pub use runtime::{EmbassyExecutor, EmbassyTimer};
-pub use transport::{ConnectConfig, EmbassyNetReconnector, connect};
+pub use transport::{ConnectConfig, EmbassyNetReconnector, RngFactory, connect};

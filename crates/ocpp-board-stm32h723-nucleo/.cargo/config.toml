@@ -1,0 +1,11 @@
+[target.thumbv7em-none-eabihf]
+# Flashes and runs via a debug probe (ST-LINK, built into the NUCLEO-H723ZG) using probe-rs.
+# Install: `cargo install probe-rs-tools --locked`. Swap for `openocd`/your own runner if you
+# don't want probe-rs.
+runner = 'probe-rs run --chip STM32H723ZGTx'
+
+[build]
+target = "thumbv7em-none-eabihf" # Cortex-M7F (H723 has an FPU)
+
+[env]
+DEFMT_LOG = "info"

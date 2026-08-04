@@ -1,0 +1,52 @@
+[package]
+edition = '2024'
+name = "ocpp-board-stm32h723-nucleo"
+version = "0.1.0-alpha.1"
+description = "Firmware scaffold: NUCLEO-H723ZG board bring-up (clocks, onboard LAN8742A Ethernet PHY, hardware RNG) wired into ocpp-transport-embassy-net + ocpp-client. Not a library - a runnable example firmware for one specific board."
+repository = "https://github.com/flowionab/ocpp-client"
+license = "MIT OR Apache-2.0"
+authors = ["Joatin Granlund <joatin@granlund.io>"]
+publish = false
+
+[[bin]]
+name = "ocpp-board-stm32h723-nucleo"
+test = false
+bench = false
+
+[dependencies]
+ocpp-client = { path = "../..", default-features = false, features = ["ocpp_1_6"] }
+ocpp-transport-embassy-net = { path = "../ocpp-transport-embassy-net" }
+
+# Chip/board bring-up. Feature list mirrors embassy's own examples/stm32h7 example
+# (github.com/embassy-rs/embassy) - "stm32h723zg" is this exact MCU (NUCLEO-H723ZG carries an
+# STM32H723ZGT6); "memory-x" makes embassy-stm32 generate a correct memory.x for it at build
+# time instead of us hand-transcribing flash/RAM addresses.
+embassy-stm32 = { version = "0.6.0", features = ["defmt", "stm32h723zg", "time-driver-any", "exti", "memory-x", "unstable-pac"] }
+embassy-executor = { version = "0.10.0", features = ["platform-cortex-m", "executor-thread", "defmt"] }
+embassy-time = { version = "0.5.1", features = ["defmt", "defmt-timestamp-uptime", "tick-hz-32_768"] }
+embassy-net = { version = "0.9.1", features = ["defmt", "tcp", "dhcpv4", "medium-ethernet", "proto-ipv4"] }
+
+# `critical-section-single-core` registers cortex-m's disable-interrupts-based critical-section
+# backend - the piece ocpp-client's own docs say an embedded app must supply (see its
+# Cargo.toml's `std` feature comment), and what makes `embedded-alloc`'s global allocator and
+# embassy-sync's Mutex sound on this single-core target.
+cortex-m = { version = "0.7.6", features = ["inline-asm", "critical-section-single-core"] }
+cortex-m-rt = "0.7.0"
+critical-section = "1.1"
+
+rand_core = { version = "0.6", default-features = false }
+# Direct dep only so main.rs can name getrandom::Error for the custom-backend hook - uuid (via
+# ocpp-client) already pulls getrandom transitively; this doesn't add a new dependency edge, just
+# a name for one that was already there.
+getrandom = { version = "0.4", default-features = false }
+embedded-alloc = "0.7"
+static_cell = "2"
+
+defmt = "1.0"
+defmt-rtt = "1.0"
+panic-probe = { version = "1.0", features = ["print-defmt"] }
+
+# Cargo only honors [profile.*] tables at the workspace root, not in member crates - see the
+# root Cargo.toml if you want embedded-typical release tuning (lto, codegen-units = 1, etc.)
+# for real flashing; not added there by default so it doesn't silently change ocpp-client's own
+# release profile.

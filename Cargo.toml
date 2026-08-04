@@ -2,9 +2,21 @@
 members = ["crates/*"]
 # ocpp-client itself (this manifest) is the workspace root and an implicit member - no need to
 # list it. crates/* holds satellite crates that build on ocpp-client's public traits, starting
-# with ocpp-transport-embassy-net (see PRODUCTION_READINESS.md item 6). Kept as workspace
-# members rather than folded into this crate's own Cargo.toml because they pull in
-# embedded-only dependencies (embassy-*) that most consumers of ocpp-client itself don't want.
+# with ocpp-transport-embassy-net and ocpp-board-stm32h723-nucleo (see
+# PRODUCTION_READINESS.md item 6). Kept as workspace members rather than folded into this
+# crate's own Cargo.toml because they pull in embedded-only dependencies (embassy-*) that most
+# consumers of ocpp-client itself don't want.
+#
+# default-members is just this root package: neither satellite crate belongs in a plain
+# `cargo build`/`test` run here. ocpp-board-stm32h723-nucleo depends on `cortex-m`'s inline
+# `asm!`, which only compiles for a real ARM target, so it would fail outright targeting the
+# host. ocpp-transport-embassy-net *does* build for the host, but including it as a default
+# member made any `cargo <cmd> --features <name>` at the root ambiguous whenever <name> wasn't a
+# feature on every default member (e.g. `--features test`, `--features ocpp_1_6` - both
+# ocpp-client-only features) - Cargo can't tell which package you meant. Build/check/clippy the
+# satellite crates explicitly with `-p <crate>` (see .github/workflows/ci.yaml's `embedded` job
+# and each crate's README).
+default-members = ["."]
 
 [package]
 edition = '2024'

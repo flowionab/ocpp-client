@@ -100,8 +100,10 @@ on `getrandom`'s `compile_error!` before it ever reaches this crate's own code.
 
 ## Next steps
 
-1. A board-specific crate for STM32H723: Ethernet MAC + PHY (e.g. LAN8742) bring-up via
-   `embassy-stm32`, clock tree, and wiring the resulting `Stack` into `ConnectConfig`.
+1. ~~A board-specific crate for STM32H723~~ **Done**: see
+   [`../ocpp-board-stm32h723-nucleo`](../ocpp-board-stm32h723-nucleo) - Ethernet MAC + PHY
+   bring-up via `embassy-stm32` for NUCLEO-H723ZG specifically, wiring the resulting `Stack` into
+   `ConnectConfig`. Builds and links for the real target; not yet run on real hardware.
 2. Hardware-in-the-loop testing against a real CSMS (or a simulator) - the buffer/fragmentation
    handling in `transport.rs` is the part most likely to need iteration once it meets a real
    server.
