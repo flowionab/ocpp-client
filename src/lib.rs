@@ -12,6 +12,7 @@ mod action;
 mod client;
 mod envelope;
 mod error;
+mod reconnect;
 pub mod runtime;
 mod sync;
 mod transport;
@@ -33,6 +34,7 @@ pub use rust_ocpp;
 pub use action::Action;
 pub use client::Client;
 pub use error::{ClientError, ProtocolError};
+pub use reconnect::{ReconnectBehavior, ReconnectPolicy, Reconnector};
 pub use runtime::{Elapsed, Executor, Timer};
 pub use transport::{TransportError, TransportEvent, TransportSink, TransportStream};
 
