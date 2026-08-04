@@ -11,13 +11,15 @@ keywords = ["OCPP", "ChargePoint", "Client", "ocpp16", "ocpp201"]
 [features]
 default = ["std", "tokio-runtime", "websocket", "ocpp_1_6", "ocpp_2_0_1", "ocpp_2_1"]
 # Pulls in std/alloc-only support. Forwards to rust-ocpp's own `std` feature (gates its
-# validator/regex-based validation) and critical-section's `std` backend (gates the mutex
-# implementation src/sync.rs's `CriticalSectionRawMutex` uses under the hood). Disable for
-# no_std + alloc targets (embedded); the engine itself (src/client.rs) has no unconditional
-# std/tokio dependency left - see the `Executor`/`Timer` traits in src/runtime.rs. Embedded
-# users must supply their own `Executor`/`Timer` impls plus a `critical-section` backend for
-# their target (via `critical_section::set_impl!`).
-std = ["rust-ocpp/std", "critical-section/std"]
+# validator/regex-based validation), critical-section's `std` backend (gates the mutex
+# implementation src/sync.rs's `CriticalSectionRawMutex` uses under the hood), and tracing's
+# `std` feature (thread-local span/event dispatch instead of tracing's no_std global-only
+# dispatch). Disable for no_std + alloc targets (embedded); the engine itself (src/client.rs)
+# has no unconditional std/tokio dependency left - see the `Executor`/`Timer` traits in
+# src/runtime.rs. Embedded users must supply their own `Executor`/`Timer` impls plus a
+# `critical-section` backend for their target (via `critical_section::set_impl!`), and their
+# own `tracing::Subscriber` (e.g. a `defmt`/RTT-backed one) if they want the log output.
+std = ["rust-ocpp/std", "critical-section/std", "tracing/std"]
 # tokio-backed `Executor`/`Timer` impls (`TokioExecutor`/`TokioTimer`). Implies `std`.
 tokio-runtime = ["std", "dep:tokio"]
 # WebSocket transport. tokio-tungstenite inherently needs a tokio runtime, so this implies
@@ -53,10 +55,12 @@ futures = { version = "0.3", optional = true }
 url = { version = "2.5", optional = true }
 rustls = { version = "0.23", optional = true }
 base64 = { version = "0.22", optional = true }
+tracing = { version = "0.1.44", default-features = false }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["full"] }
 chrono = { version = "^0.4", default-features = false, features = ["now"] }
 rcgen = { version = "0.14.8", default-features = false, features = ["aws_lc_rs", "pem"] }
 tokio-rustls = "0.26"
+tracing-test = { version = "0.2.6", features = ["no-env-filter"] }
 
