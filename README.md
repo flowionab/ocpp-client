@@ -25,7 +25,7 @@ OCPP message types and protocol definitions are provided by [`rust-ocpp`](https:
 
 Designed for both cloud/server environments and resource-constrained embedded systems, OCPP Client supports standard WebSocket connections as well as `no_std` compatible transports for STM32-based platforms.
 
-The library currently supports **OCPP 1.6J** and **OCPP 2.0.1**, with **OCPP 2.1 actively being implemented**.
+The library currently supports **OCPP 1.6J**, **OCPP 2.0.1**, and **OCPP 2.1**.
 
 ---
 
@@ -35,7 +35,7 @@ The library currently supports **OCPP 1.6J** and **OCPP 2.0.1**, with **OCPP 2.1
 * 🔌 OCPP communication layer
 * ⚡ OCPP **1.6J support**
 * 🚀 OCPP **2.0.1 support**
-* 🔮 OCPP **2.1 implementation in progress**
+* ⚡ OCPP **2.1 support**
 * 🌐 WebSocket transport
 * 🔒 Secure WebSocket (WSS)
 * 🔋 STM32-compatible transport layer
@@ -54,7 +54,7 @@ The library currently supports **OCPP 1.6J** and **OCPP 2.0.1**, with **OCPP 2.1
 | ---------- | -------------- |
 | OCPP 1.6J  | ✅ Supported    |
 | OCPP 2.0.1 | ✅ Supported    |
-| OCPP 2.1   | 🚧 In Progress |
+| OCPP 2.1   | ✅ Supported    |
 
 ---
 
@@ -266,7 +266,6 @@ It can be combined with simulators and real charging hardware to validate comple
 
 Planned improvements:
 
-* 🔮 Complete OCPP 2.1 support
 * 🔌 Additional embedded transports
 * 📚 More examples
 * 🧪 Expanded integration tests
