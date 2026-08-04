@@ -14,10 +14,16 @@ Gaps to close before pointing real hardware/fleets at this crate, in priority or
    out the full timeout) and a hook for re-running `BootNotification`/state resync after
    reconnect — see item 2.
 
-2. **No session-resilience layer on top of reconnection** — e.g. re-running
-   `BootNotification` on reconnect, replaying `StatusNotification`. Arguably out of scope for
-   a "protocol layer only" crate (that's what `ocpp-charge-point` is for), but worth being
-   explicit that integrators must build it themselves.
+2. ~~**No session-resilience layer on top of reconnection.**~~ **Partially done.**
+   `Client::on_reconnect` (mirrors `on_ping`) fires a callback every time the background read
+   loop redials successfully - never on the initial connection, only on later reconnects, so
+   it's the natural place for a caller to re-run `BootNotification` or resync other session
+   state. Actually re-running `BootNotification`/replaying `StatusNotification` automatically
+   is still not this crate's job - it's a "protocol layer only" crate (that's what
+   `ocpp-charge-point` is for) - but the hook to build that on top of now exists, where before
+   there was no reconnect signal at all to hook into. Covered by
+   `tests/ocpp_1_6_on_reconnect.rs` (fake-transport test with a custom `Reconnector`, proving
+   the callback fires after a redial and not before).
 
 3. ~~**CI is thin.**~~ **Done.** `.github/workflows/ci.yaml` now runs four parallel jobs on
    push-to-`main` and on every pull request: `fmt` (`cargo fmt --all -- --check`), `clippy`
