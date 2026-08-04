@@ -51,10 +51,42 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       # Standing proof that the engine builds without std/tokio for embedded targets. See
       # CLAUDE.md's "no_std+alloc works now" section - re-check this whenever client.rs,
-      # transport.rs, error.rs, or a per-version error.rs/actions.rs changes.
+      # transport.rs, error.rs, or a per-version error.rs/actions.rs changes. `-p ocpp-client`
+      # is explicit (not just relying on default-members) so this keeps working even if
+      # default-members ever changes.
       - name: no_std+alloc build (ocpp_1_6)
-        run: cargo build --lib --no-default-features --features ocpp_1_6
+        run: cargo build -p ocpp-client --lib --no-default-features --features ocpp_1_6
       - name: no_std+alloc build (ocpp_2_0_1)
-        run: cargo build --lib --no-default-features --features ocpp_2_0_1
+        run: cargo build -p ocpp-client --lib --no-default-features --features ocpp_2_0_1
       - name: no_std+alloc build (ocpp_2_1)
-        run: cargo build --lib --no-default-features --features ocpp_2_1
+        run: cargo build -p ocpp-client --lib --no-default-features --features ocpp_2_1
+
+  embedded:
+    runs-on: ubuntu-latest
+    # `RUSTFLAGS` reproduces the `--cfg getrandom_backend="custom"` a real firmware binary sets
+    # in its own .cargo/config.toml (see crates/ocpp-transport-embassy-net's README) - without
+    # it, `uuid`'s `v4` feature drags in `getrandom`, which has no backend for bare-metal
+    # thumbv7em-none-eabihf and fails the build before reaching this workspace's own code.
+    env:
+      RUSTFLAGS: --cfg getrandom_backend="custom"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: thumbv7em-none-eabihf
+          components: clippy
+      - uses: Swatinem/rust-cache@v2
+      # ocpp-transport-embassy-net is chip-agnostic - check/clippy against the real embedded
+      # target, not just the host (which its own presence in default-members already covers via
+      # the `test`/`clippy` jobs above).
+      - name: ocpp-transport-embassy-net check (thumbv7em-none-eabihf)
+        run: cargo check -p ocpp-transport-embassy-net --target thumbv7em-none-eabihf
+      - name: ocpp-transport-embassy-net clippy (thumbv7em-none-eabihf)
+        run: cargo clippy -p ocpp-transport-embassy-net --target thumbv7em-none-eabihf -- -D warnings
+      # ocpp-board-stm32h723-nucleo is a real firmware binary - `build` (not just `check`) so a
+      # full link happens, catching link-time-only failures like a missing
+      # __getrandom_v03_custom custom-backend symbol that `check`/`clippy` alone can't see.
+      - name: ocpp-board-stm32h723-nucleo build (thumbv7em-none-eabihf, full link)
+        run: cargo build -p ocpp-board-stm32h723-nucleo --target thumbv7em-none-eabihf
+      - name: ocpp-board-stm32h723-nucleo clippy (thumbv7em-none-eabihf)
+        run: cargo clippy -p ocpp-board-stm32h723-nucleo --target thumbv7em-none-eabihf -- -D warnings

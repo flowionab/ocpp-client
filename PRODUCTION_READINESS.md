@@ -71,9 +71,18 @@ Gaps to close before pointing real hardware/fleets at this crate, in priority or
      to guard against. The new crate bridges this with a handful of documented `unsafe impl
      Send`/`Sync` assertions rather than a design change in `ocpp-client` itself; still worth
      being aware this trait boundary was written with only a multi-threaded runtime in mind.
-   Still needed: an STM32H723-specific board-support crate (Ethernet MAC/PHY bring-up via
-   `embassy-stm32`) wiring into this transport, then hardware-in-the-loop testing, then TLS -
-   see that crate's README's "Next steps".
+   `crates/ocpp-board-stm32h723-nucleo` (new workspace member, excluded from
+   `default-members` since it needs a real ARM target) is the board-support crate: clock tree
+   and NUCLEO-H723ZG's onboard LAN8742A Ethernet RMII pin mapping (cross-checked against two
+   independent working reference sources - see that crate's README), hardware RNG shared
+   between `ocpp-transport-embassy-net`'s `RngFactory` and `getrandom`'s custom backend (closing
+   the loop on the `getrandom` gap above - `cargo build` there does a *full link*, not just
+   `check`, specifically to catch the missing-custom-backend-symbol failure that a `check`-only
+   CI job wouldn't). Builds and links for `thumbv7em-none-eabihf`; **not yet flashed to real
+   hardware or tested against a real CSMS.** CI's new `embedded` job covers both new crates
+   against the real target on every push/PR (`.github/workflows/ci.yaml`). Still needed:
+   hardware-in-the-loop testing, then TLS - see `ocpp-transport-embassy-net`'s README's "Next
+   steps".
 
 7. ~~**No structured logging/telemetry.**~~ **Done.** Every diagnostic in `client.rs` (malformed
    frames, unparsable CALL/CALLRESULT/CALLERROR, failed response encode/send, reconnect

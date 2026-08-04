@@ -151,6 +151,15 @@ version (`ocpp_1_6_*` / `ocpp_2_0_1_*` / `ocpp_2_1_*`):
 
 ## Common commands
 
+This repo is a Cargo **workspace** (root `Cargo.toml` has `[workspace]` + `[package]` both -
+`ocpp-client` is itself a member). `default-members = ["."]`, so a plain `cargo build`/`test`/etc.
+at the root only ever touches `ocpp-client` - exactly like before the workspace existed. The two
+satellite crates under `crates/` (`ocpp-transport-embassy-net`, `ocpp-board-stm32h723-nucleo` -
+see "Embedded satellite crates" below) are never implicitly included; always pass `-p <crate>` to
+touch them. (Passing `--workspace` bypasses `default-members` and builds everything, including
+`ocpp-board-stm32h723-nucleo` - that fails on a non-ARM host, since it depends on `cortex-m`'s
+inline `asm!`. Don't use `--workspace` here unless you also pass `--target thumbv7em-none-eabihf`.)
+
 ```sh
 cargo build                              # default features: std, tokio-runtime, websocket, ocpp_1_6, ocpp_2_0_1, ocpp_2_1
 cargo test                                # run all tests
@@ -161,6 +170,23 @@ cargo build --lib --no-default-features --features ocpp_1_6 # no_std+alloc proof
 cargo fmt                                 # format (rustfmt, per CONTRIBUTING.md)
 ```
 
-CI (`.github/workflows/ci.yaml`) runs `cargo build` and `cargo test` (default features) on push — keep both
-green. It does not currently run with `--features test`; if you add a `wait_for_*`-only test, it won't be
-caught by CI unless you also run it locally.
+CI (`.github/workflows/ci.yaml`) runs four jobs on push-to-`main` and every pull request: `fmt`
+(`cargo fmt --all -- --check`), `clippy` (`cargo clippy --all-targets --all-features -- -D
+warnings`), `test` (`cargo build` then `cargo test --features test`, covering the `wait_for_*`
+tests too), `no_std` (the three `cargo build -p ocpp-client --lib --no-default-features --features
+ocpp_{1_6,2_0_1,2_1}` proof builds), and `embedded` (checks/clippies
+`ocpp-transport-embassy-net` and full-links `ocpp-board-stm32h723-nucleo` against the real
+`thumbv7em-none-eabihf` target, with `RUSTFLAGS: --cfg getrandom_backend="custom"` - see that
+crate's README for why). Keep all five green.
+
+## Embedded satellite crates
+
+`crates/ocpp-transport-embassy-net` (chip-agnostic `no_std`+`alloc` WebSocket transport over
+`embassy-net`) and `crates/ocpp-board-stm32h723-nucleo` (NUCLEO-H723ZG firmware scaffold wiring
+that transport to real Ethernet hardware) are the embedded story from PRODUCTION_READINESS.md
+item 6. Both are real code (compile, and for the board crate, fully link, against
+`thumbv7em-none-eabihf`) but **neither has been run against real hardware or a real CSMS yet** -
+see each crate's own README for exact status, the two `ocpp-client`-relevant gaps their
+existence surfaced (`getrandom` needs a custom backend on bare-metal targets; embassy's
+`Spawner`/`Stack` are `!Sync` where `ocpp_client::Executor`/`Reconnector` require `Send + Sync`),
+and next steps.
