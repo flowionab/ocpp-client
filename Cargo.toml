@@ -30,33 +30,35 @@ keywords = ["OCPP", "ChargePoint", "Client", "ocpp16", "ocpp201"]
 
 [features]
 default = ["std", "tokio-runtime", "websocket", "ocpp_1_6", "ocpp_2_0_1", "ocpp_2_1"]
-# Pulls in std/alloc-only support. Forwards to rust-ocpp's own `std` feature (gates its
-# validator/regex-based validation), critical-section's `std` backend (gates the mutex
-# implementation src/sync.rs's `CriticalSectionRawMutex` uses under the hood), and tracing's
-# `std` feature (thread-local span/event dispatch instead of tracing's no_std global-only
-# dispatch). Disable for no_std + alloc targets (embedded); the engine itself (src/client.rs)
-# has no unconditional std/tokio dependency left - see the `Executor`/`Timer` traits in
-# src/runtime.rs. Embedded users must supply their own `Executor`/`Timer` impls plus a
-# `critical-section` backend for their target (via `critical_section::set_impl!`), and their
-# own `tracing::Subscriber` (e.g. a `defmt`/RTT-backed one) if they want the log output.
-std = ["rust-ocpp/std", "critical-section/std", "tracing/std"]
+# Pulls in std/alloc-only support. Forwards to critical-section's `std` backend (gates the
+# mutex implementation src/sync.rs's `CriticalSectionRawMutex` uses under the hood) and
+# tracing's `std` feature (thread-local span/event dispatch instead of tracing's no_std
+# global-only dispatch). `ocpp-types` needs no forwarding here - its own `alloc` feature is
+# unconditionally enabled below regardless of this crate's `std` status, since even the
+# no_std+alloc build wants plain `alloc::String`/`Vec` for spec-unbounded fields rather than
+# const-generic-sized `heapless` collections (see MIGRATION_OCPP_TYPES.md). Disable `std` for
+# no_std + alloc targets (embedded); the engine itself (src/client.rs) has no unconditional
+# std/tokio dependency left - see the `Executor`/`Timer` traits in src/runtime.rs. Embedded
+# users must supply their own `Executor`/`Timer` impls plus a `critical-section` backend for
+# their target (via `critical_section::set_impl!`), and their own `tracing::Subscriber` (e.g. a
+# `defmt`/RTT-backed one) if they want the log output.
+std = ["critical-section/std", "tracing/std"]
 # tokio-backed `Executor`/`Timer` impls (`TokioExecutor`/`TokioTimer`). Implies `std`.
 tokio-runtime = ["std", "dep:tokio"]
 # WebSocket transport. tokio-tungstenite inherently needs a tokio runtime, so this implies
 # `tokio-runtime`.
 websocket = ["tokio-runtime", "dep:tokio-tungstenite", "dep:futures", "dep:url", "dep:rustls", "dep:base64"]
-ocpp_1_6 = ["rust-ocpp/v1_6"]
-ocpp_2_0_1 = ["rust-ocpp/v2_0_1"]
-# OCPP 2.1, mirroring src/ocpp_2_0_1/ (see CLAUDE.md). One action, NotifyReport, is missing -
-# rust-ocpp's `wip_v2_1::messages::notify_report` module is still empty upstream.
-ocpp_2_1 = ["rust-ocpp/wip_v2_1"]
+# `ocpp-types` has no per-version cargo features (v16/v201/v21 always compile in), so these
+# just gate this crate's own src/ocpp_{1_6,2_0_1,2_1}/ modules.
+ocpp_1_6 = []
+ocpp_2_0_1 = []
+ocpp_2_1 = []
 test = []
 
 [dependencies]
-# Forked from https://github.com/codelabsab/rust-ocpp to add no_std (alloc-only) support:
-# jsonschema/reqwest/hyper/tokio removed entirely, validator/regex made optional and gated
-# behind rust-ocpp's own `std` feature. See CLAUDE.md.
-rust-ocpp = { git = "https://github.com/flowionab/rust-ocpp", default-features = false }
+# Strongly typed, no_std+no_alloc-by-default OCPP message types generated from the official
+# JSON schemas - see MIGRATION_OCPP_TYPES.md for why this replaced the rust-ocpp fork.
+ocpp-types = { version = "0.1.1", default-features = false, features = ["serde", "alloc"] }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
 uuid = { version = "1", default-features = false, features = ["v4"] }

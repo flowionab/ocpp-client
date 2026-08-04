@@ -7,6 +7,7 @@
 [![Crates.io](https://img.shields.io/crates/v/ocpp-client)](https://crates.io/crates/ocpp-client)
 [![Documentation](https://docs.rs/ocpp-client/badge.svg)](https://docs.rs/ocpp-client)
 [![.github/workflows/ci.yaml](https://github.com/flowionab/ocpp-client/actions/workflows/ci.yaml/badge.svg)](https://github.com/flowionab/ocpp-client/actions/workflows/ci.yaml)
+[![no_std](https://img.shields.io/badge/no__std-compatible-brightgreen.svg)](#features)
 
 ---
 
@@ -21,7 +22,7 @@ The library handles the complexities of establishing and managing OCPP connectio
 * Message routing
 * Communication reliability
 
-OCPP message types and protocol definitions are provided by [`rust-ocpp`](https://github.com/flowionab/rust-ocpp), while OCPP Client focuses on the communication layer required to exchange messages between charge points and Charge Station Management Systems (CSMS).
+OCPP message types and protocol definitions are provided by [`ocpp-types`](https://github.com/flowionab/ocpp-types), while OCPP Client focuses on the communication layer required to exchange messages between charge points and Charge Station Management Systems (CSMS).
 
 Designed for both cloud/server environments and resource-constrained embedded systems, OCPP Client supports standard WebSocket connections as well as `no_std` compatible transports for STM32-based platforms.
 
@@ -54,11 +55,7 @@ The library currently supports **OCPP 1.6J**, **OCPP 2.0.1**, and **OCPP 2.1**.
 | ---------- | -------------- |
 | OCPP 1.6J  | ✅ Supported    |
 | OCPP 2.0.1 | ✅ Supported    |
-| OCPP 2.1   | ✅ Supported *  |
-
-\* One OCPP 2.1 action, `NotifyReport`, isn't wired up yet - it's blocked on an empty module
-in the upstream [`rust-ocpp`](https://github.com/flowionab/rust-ocpp) fork this crate depends
-on. Every other 2.1 action works.
+| OCPP 2.1   | ✅ Supported    |
 
 ---
 
@@ -123,7 +120,7 @@ OCPP Client separates protocol definitions from communication.
                        │
                        │
 ┌──────────────────────▼─────────────────────┐
-│               rust-ocpp                    │
+│               ocpp-types                   │
 │                                            │
 │  OCPP message types                        │
 │  Protocol models                            │
@@ -141,11 +138,11 @@ Each project has a focused responsibility, allowing developers to choose the rig
 
 ---
 
-### 📦 rust-ocpp
+### 📦 ocpp-types
 
 **OCPP protocol definitions and data models**
 
-[`rust-ocpp`](https://github.com/flowionab/rust-ocpp) provides the foundation for working with OCPP messages in Rust.
+[`ocpp-types`](https://github.com/flowionab/ocpp-types) provides the foundation for working with OCPP messages in Rust.
 
 It contains:
 
@@ -154,7 +151,7 @@ It contains:
 * Serialization and deserialization
 * Version-specific protocol definitions
 
-OCPP Client builds on top of `rust-ocpp` to provide communication capabilities.
+OCPP Client builds on top of `ocpp-types` to provide communication capabilities.
 
 ---
 

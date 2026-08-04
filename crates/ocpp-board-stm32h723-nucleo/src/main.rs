@@ -23,7 +23,7 @@ use embassy_stm32::{Config as StmConfig, bind_interrupts, eth, peripherals, rng}
 use embassy_time::Timer;
 use embedded_alloc::LlffHeap as Heap;
 use ocpp_client::ocpp_1_6::OCPP1_6Client;
-use ocpp_client::rust_ocpp::v1_6::messages::heart_beat::HeartbeatRequest;
+use ocpp_client::ocpp_types::v16::HeartbeatRequest;
 use ocpp_client::{Client, ReconnectPolicy};
 use ocpp_transport_embassy_net::{
     ConnectConfig, EmbassyExecutor, EmbassyNetReconnector, EmbassyTimer, RngFactory,

@@ -7,8 +7,8 @@ mod common;
 use common::fake_transport_pair;
 use ocpp_client::ocpp_1_6::OCPP1_6Client;
 use ocpp_client::{Client, TokioExecutor, TokioTimer, TransportSink};
-use rust_ocpp::v1_6::messages::reset::{ResetRequest, ResetResponse};
-use rust_ocpp::v1_6::types::{ResetRequestStatus, ResetResponseStatus};
+use ocpp_types::v16::common::{ResetRequestType, ResetResponseStatus};
+use ocpp_types::v16::{ResetRequest, ResetResponse};
 use serde_json::json;
 use std::time::Duration;
 
@@ -39,7 +39,7 @@ async fn wait_for_reset_returns_the_parsed_request() {
     assert_eq!(
         request,
         ResetRequest {
-            kind: ResetRequestStatus::Hard,
+            r#type: ResetRequestType::Hard,
         }
     );
 }

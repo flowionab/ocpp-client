@@ -3,225 +3,69 @@ use crate::error::ClientError;
 use crate::ocpp_2_1::OCPP2_1Client;
 use crate::ocpp_2_1::error::OCPP2_1Error;
 use core::future::Future;
-use rust_ocpp::v2_1::messages::adjust_periodic_event_stream::{
-    AdjustPeriodicEventStreamRequest, AdjustPeriodicEventStreamResponse,
-};
-use rust_ocpp::v2_1::messages::afrr_signal::{AFRRSignalRequest, AFRRSignalResponse};
-use rust_ocpp::v2_1::messages::authorize::{AuthorizeRequest, AuthorizeResponse};
-use rust_ocpp::v2_1::messages::battery_swap::{BatterySwapRequest, BatterySwapResponse};
-use rust_ocpp::v2_1::messages::boot_notification::{
-    BootNotificationRequest, BootNotificationResponse,
-};
-use rust_ocpp::v2_1::messages::cancel_reservation::{
-    CancelReservationRequest, CancelReservationResponse,
-};
-use rust_ocpp::v2_1::messages::certificate_signed::{
-    CertificateSignedRequest, CertificateSignedResponse,
-};
-use rust_ocpp::v2_1::messages::change_availability::{
-    ChangeAvailabilityRequest, ChangeAvailabilityResponse,
-};
-use rust_ocpp::v2_1::messages::change_transaction_tariff::{
-    ChangeTransactionTariffRequest, ChangeTransactionTariffResponse,
-};
-use rust_ocpp::v2_1::messages::clear_cache::{ClearCacheRequest, ClearCacheResponse};
-use rust_ocpp::v2_1::messages::clear_charging_profile::{
-    ClearChargingProfileRequest, ClearChargingProfileResponse,
-};
-use rust_ocpp::v2_1::messages::clear_der_control::{
-    ClearDERControlRequest, ClearDERControlResponse,
-};
-use rust_ocpp::v2_1::messages::clear_display_message::{
-    ClearDisplayMessageRequest, ClearDisplayMessageResponse,
-};
-use rust_ocpp::v2_1::messages::clear_tariffs::{ClearTariffsRequest, ClearTariffsResponse};
-use rust_ocpp::v2_1::messages::clear_variable_monitoring::{
-    ClearVariableMonitoringRequest, ClearVariableMonitoringResponse,
-};
-use rust_ocpp::v2_1::messages::cleared_charging_limit::{
-    ClearedChargingLimitRequest, ClearedChargingLimitResponse,
-};
-use rust_ocpp::v2_1::messages::close_periodic_event_stream::{
-    ClosePeriodicEventStreamRequest, ClosePeriodicEventStreamResponse,
-};
-use rust_ocpp::v2_1::messages::cost_updated::{CostUpdatedRequest, CostUpdatedResponse};
-use rust_ocpp::v2_1::messages::customer_information::{
-    CustomerInformationRequest, CustomerInformationResponse,
-};
-use rust_ocpp::v2_1::messages::data_transfer::{DataTransferRequest, DataTransferResponse};
-use rust_ocpp::v2_1::messages::delete_certificate::{
-    DeleteCertificateRequest, DeleteCertificateResponse,
-};
-use rust_ocpp::v2_1::messages::firmware_status_notification::{
+use ocpp_types::v21::{
+    AFRRSignalRequest, AFRRSignalResponse, AdjustPeriodicEventStreamRequest,
+    AdjustPeriodicEventStreamResponse, AuthorizeRequest, AuthorizeResponse, BatterySwapRequest,
+    BatterySwapResponse, BootNotificationRequest, BootNotificationResponse,
+    CancelReservationRequest, CancelReservationResponse, CertificateSignedRequest,
+    CertificateSignedResponse, ChangeAvailabilityRequest, ChangeAvailabilityResponse,
+    ChangeTransactionTariffRequest, ChangeTransactionTariffResponse, ClearCacheRequest,
+    ClearCacheResponse, ClearChargingProfileRequest, ClearChargingProfileResponse,
+    ClearDERControlRequest, ClearDERControlResponse, ClearDisplayMessageRequest,
+    ClearDisplayMessageResponse, ClearTariffsRequest, ClearTariffsResponse,
+    ClearVariableMonitoringRequest, ClearVariableMonitoringResponse, ClearedChargingLimitRequest,
+    ClearedChargingLimitResponse, ClosePeriodicEventStreamRequest,
+    ClosePeriodicEventStreamResponse, CostUpdatedRequest, CostUpdatedResponse,
+    CustomerInformationRequest, CustomerInformationResponse, DataTransferRequest,
+    DataTransferResponse, DeleteCertificateRequest, DeleteCertificateResponse,
     FirmwareStatusNotificationRequest, FirmwareStatusNotificationResponse,
-};
-use rust_ocpp::v2_1::messages::get_15118ev_certificate::{
-    Get15118EVCertificateRequest, Get15118EVCertificateResponse,
-};
-use rust_ocpp::v2_1::messages::get_base_report::{GetBaseReportRequest, GetBaseReportResponse};
-use rust_ocpp::v2_1::messages::get_certificate_chain_status::{
-    GetCertificateChainStatusRequest, GetCertificateChainStatusResponse,
-};
-use rust_ocpp::v2_1::messages::get_certificate_status::{
-    GetCertificateStatusRequest, GetCertificateStatusResponse,
-};
-use rust_ocpp::v2_1::messages::get_charging_profiles::{
-    GetChargingProfilesRequest, GetChargingProfilesResponse,
-};
-use rust_ocpp::v2_1::messages::get_composite_schedule::{
-    GetCompositeScheduleRequest, GetCompositeScheduleResponse,
-};
-use rust_ocpp::v2_1::messages::get_display_messages::{
-    GetDisplayMessagesRequest, GetDisplayMessagesResponse,
-};
-use rust_ocpp::v2_1::messages::get_installed_certificate_ids::{
-    GetInstalledCertificateIdsRequest, GetInstalledCertificateIdsResponse,
-};
-use rust_ocpp::v2_1::messages::get_local_list_version::{
-    GetLocalListVersionRequest, GetLocalListVersionResponse,
-};
-use rust_ocpp::v2_1::messages::get_log::{GetLogRequest, GetLogResponse};
-use rust_ocpp::v2_1::messages::get_monitoring_report::{
-    GetMonitoringReportRequest, GetMonitoringReportResponse,
-};
-use rust_ocpp::v2_1::messages::get_periodic_event_stream::{
-    GetPeriodicEventStreamRequest, GetPeriodicEventStreamResponse,
-};
-use rust_ocpp::v2_1::messages::get_report::{GetReportRequest, GetReportResponse};
-use rust_ocpp::v2_1::messages::get_tariffs::{GetTariffsRequest, GetTariffsResponse};
-use rust_ocpp::v2_1::messages::get_transaction_status::{
-    GetTransactionStatusRequest, GetTransactionStatusResponse,
-};
-use rust_ocpp::v2_1::messages::get_variables::{GetVariablesRequest, GetVariablesResponse};
-use rust_ocpp::v2_1::messages::heartbeat::{HeartbeatRequest, HeartbeatResponse};
-use rust_ocpp::v2_1::messages::install_certificate::{
-    InstallCertificateRequest, InstallCertificateResponse,
-};
-use rust_ocpp::v2_1::messages::log_status_notification::{
-    LogStatusNotificationRequest, LogStatusNotificationResponse,
-};
-use rust_ocpp::v2_1::messages::meter_values::{MeterValuesRequest, MeterValuesResponse};
-use rust_ocpp::v2_1::messages::notify_allowed_energy_transfer::{
-    NotifyAllowedEnergyTransferRequest, NotifyAllowedEnergyTransferResponse,
-};
-use rust_ocpp::v2_1::messages::notify_charging_limit::{
-    NotifyChargingLimitRequest, NotifyChargingLimitResponse,
-};
-use rust_ocpp::v2_1::messages::notify_customer_information::{
-    NotifyCustomerInformationRequest, NotifyCustomerInformationResponse,
-};
-use rust_ocpp::v2_1::messages::notify_der_alarm::{NotifyDERAlarmRequest, NotifyDERAlarmResponse};
-use rust_ocpp::v2_1::messages::notify_der_start_stop::{
-    NotifyDERStartStopRequest, NotifyDERStartStopResponse,
-};
-use rust_ocpp::v2_1::messages::notify_display_messages::{
-    NotifyDisplayMessagesRequest, NotifyDisplayMessagesResponse,
-};
-use rust_ocpp::v2_1::messages::notify_ev_charging_needs::{
-    NotifyEVChargingNeedsRequest, NotifyEVChargingNeedsResponse,
-};
-use rust_ocpp::v2_1::messages::notify_ev_charging_schedule::{
-    NotifyEVChargingScheduleRequest, NotifyEVChargingScheduleResponse,
-};
-use rust_ocpp::v2_1::messages::notify_event::{NotifyEventRequest, NotifyEventResponse};
-use rust_ocpp::v2_1::messages::notify_monitoring_report::{
-    NotifyMonitoringReportRequest, NotifyMonitoringReportResponse,
-};
-use rust_ocpp::v2_1::messages::notify_periodic_event_stream::{
-    NotifyPeriodicEventStreamRequest, NotifyPeriodicEventStreamResponse,
-};
-use rust_ocpp::v2_1::messages::notify_priority_charging::{
-    NotifyPriorityChargingRequest, NotifyPriorityChargingResponse,
-};
-use rust_ocpp::v2_1::messages::notify_settlement::{
-    NotifySettlementRequest, NotifySettlementResponse,
-};
-use rust_ocpp::v2_1::messages::notify_web_payment_started::{
+    Get15118EVCertificateRequest, Get15118EVCertificateResponse, GetBaseReportRequest,
+    GetBaseReportResponse, GetCertificateChainStatusRequest, GetCertificateChainStatusResponse,
+    GetCertificateStatusRequest, GetCertificateStatusResponse, GetChargingProfilesRequest,
+    GetChargingProfilesResponse, GetCompositeScheduleRequest, GetCompositeScheduleResponse,
+    GetDisplayMessagesRequest, GetDisplayMessagesResponse, GetInstalledCertificateIdsRequest,
+    GetInstalledCertificateIdsResponse, GetLocalListVersionRequest, GetLocalListVersionResponse,
+    GetLogRequest, GetLogResponse, GetMonitoringReportRequest, GetMonitoringReportResponse,
+    GetPeriodicEventStreamRequest, GetPeriodicEventStreamResponse, GetReportRequest,
+    GetReportResponse, GetTariffsRequest, GetTariffsResponse, GetTransactionStatusRequest,
+    GetTransactionStatusResponse, GetVariablesRequest, GetVariablesResponse, HeartbeatRequest,
+    HeartbeatResponse, InstallCertificateRequest, InstallCertificateResponse,
+    LogStatusNotificationRequest, LogStatusNotificationResponse, MeterValuesRequest,
+    MeterValuesResponse, NotifyAllowedEnergyTransferRequest, NotifyAllowedEnergyTransferResponse,
+    NotifyChargingLimitRequest, NotifyChargingLimitResponse, NotifyCustomerInformationRequest,
+    NotifyCustomerInformationResponse, NotifyDERAlarmRequest, NotifyDERAlarmResponse,
+    NotifyDERStartStopRequest, NotifyDERStartStopResponse, NotifyDisplayMessagesRequest,
+    NotifyDisplayMessagesResponse, NotifyEVChargingNeedsRequest, NotifyEVChargingNeedsResponse,
+    NotifyEVChargingScheduleRequest, NotifyEVChargingScheduleResponse, NotifyEventRequest,
+    NotifyEventResponse, NotifyMonitoringReportRequest, NotifyMonitoringReportResponse,
+    NotifyPeriodicEventStream, NotifyPriorityChargingRequest, NotifyPriorityChargingResponse,
+    NotifyReportRequest, NotifyReportResponse, NotifySettlementRequest, NotifySettlementResponse,
     NotifyWebPaymentStartedRequest, NotifyWebPaymentStartedResponse,
-};
-use rust_ocpp::v2_1::messages::open_periodic_event_stream::{
-    OpenPeriodicEventStreamRequest, OpenPeriodicEventStreamResponse,
-};
-use rust_ocpp::v2_1::messages::publish_firmware::{
-    PublishFirmwareRequest, PublishFirmwareResponse,
-};
-use rust_ocpp::v2_1::messages::publish_firmware_status_notification::{
-    PublishFirmwareStatusNotificationRequest, PublishFirmwareStatusNotificationResponse,
-};
-use rust_ocpp::v2_1::messages::pull_dynamic_schedule_update::{
-    PullDynamicScheduleUpdateRequest, PullDynamicScheduleUpdateResponse,
-};
-use rust_ocpp::v2_1::messages::report_charging_profiles::{
-    ReportChargingProfilesRequest, ReportChargingProfilesResponse,
-};
-use rust_ocpp::v2_1::messages::report_der_control::{
-    ReportDERControlRequest, ReportDERControlResponse,
-};
-use rust_ocpp::v2_1::messages::request_battery_swap::{
-    RequestBatterySwapRequest, RequestBatterySwapResponse,
-};
-use rust_ocpp::v2_1::messages::request_start_transaction::{
-    RequestStartTransactionRequest, RequestStartTransactionResponse,
-};
-use rust_ocpp::v2_1::messages::request_stop_transaction::{
-    RequestStopTransactionRequest, RequestStopTransactionResponse,
-};
-use rust_ocpp::v2_1::messages::reservation_status_update::{
-    ReservationStatusUpdateRequest, ReservationStatusUpdateResponse,
-};
-use rust_ocpp::v2_1::messages::reserve_now::{ReserveNowRequest, ReserveNowResponse};
-use rust_ocpp::v2_1::messages::reset::{ResetRequest, ResetResponse};
-use rust_ocpp::v2_1::messages::security_event_notification::{
-    SecurityEventNotificationRequest, SecurityEventNotificationResponse,
-};
-use rust_ocpp::v2_1::messages::send_local_list::{SendLocalListRequest, SendLocalListResponse};
-use rust_ocpp::v2_1::messages::set_charging_profile::{
-    SetChargingProfileRequest, SetChargingProfileResponse,
-};
-use rust_ocpp::v2_1::messages::set_default_tariff::{
-    SetDefaultTariffRequest, SetDefaultTariffResponse,
-};
-use rust_ocpp::v2_1::messages::set_monitoring_base::{
-    SetMonitoringBaseRequest, SetMonitoringBaseResponse,
-};
-use rust_ocpp::v2_1::messages::set_monitoring_level::{
-    SetMonitoringLevelRequest, SetMonitoringLevelResponse,
-};
-use rust_ocpp::v2_1::messages::set_network_profile::{
-    SetNetworkProfileRequest, SetNetworkProfileResponse,
-};
-use rust_ocpp::v2_1::messages::set_variable_monitoring::{
-    SetVariableMonitoringRequest, SetVariableMonitoringResponse,
-};
-use rust_ocpp::v2_1::messages::set_variables::{SetVariablesRequest, SetVariablesResponse};
-use rust_ocpp::v2_1::messages::sign_certificate::{
-    SignCertificateRequest, SignCertificateResponse,
-};
-use rust_ocpp::v2_1::messages::status_notification::{
-    StatusNotificationRequest, StatusNotificationResponse,
-};
-use rust_ocpp::v2_1::messages::transaction_event::{
-    TransactionEventRequest, TransactionEventResponse,
-};
-use rust_ocpp::v2_1::messages::unlock_connector::{
-    UnlockConnectorRequest, UnlockConnectorResponse,
-};
-use rust_ocpp::v2_1::messages::unpublish_firmware::{
-    UnpublishFirmwareRequest, UnpublishFirmwareResponse,
-};
-use rust_ocpp::v2_1::messages::update_firmware::{UpdateFirmwareRequest, UpdateFirmwareResponse};
-use rust_ocpp::v2_1::messages::use_priority_charging::{
-    UsePriorityChargingRequest, UsePriorityChargingResponse,
-};
-use rust_ocpp::v2_1::messages::vat_number_validation::{
+    OpenPeriodicEventStreamRequest, OpenPeriodicEventStreamResponse, PublishFirmwareRequest,
+    PublishFirmwareResponse, PublishFirmwareStatusNotificationRequest,
+    PublishFirmwareStatusNotificationResponse, PullDynamicScheduleUpdateRequest,
+    PullDynamicScheduleUpdateResponse, ReportChargingProfilesRequest,
+    ReportChargingProfilesResponse, ReportDERControlRequest, ReportDERControlResponse,
+    RequestBatterySwapRequest, RequestBatterySwapResponse, RequestStartTransactionRequest,
+    RequestStartTransactionResponse, RequestStopTransactionRequest, RequestStopTransactionResponse,
+    ReservationStatusUpdateRequest, ReservationStatusUpdateResponse, ReserveNowRequest,
+    ReserveNowResponse, ResetRequest, ResetResponse, SecurityEventNotificationRequest,
+    SecurityEventNotificationResponse, SendLocalListRequest, SendLocalListResponse,
+    SetChargingProfileRequest, SetChargingProfileResponse, SetDefaultTariffRequest,
+    SetDefaultTariffResponse, SetMonitoringBaseRequest, SetMonitoringBaseResponse,
+    SetMonitoringLevelRequest, SetMonitoringLevelResponse, SetNetworkProfileRequest,
+    SetNetworkProfileResponse, SetVariableMonitoringRequest, SetVariableMonitoringResponse,
+    SetVariablesRequest, SetVariablesResponse, SignCertificateRequest, SignCertificateResponse,
+    StatusNotificationRequest, StatusNotificationResponse, TransactionEventRequest,
+    TransactionEventResponse, UnlockConnectorRequest, UnlockConnectorResponse,
+    UnpublishFirmwareRequest, UnpublishFirmwareResponse, UpdateFirmwareRequest,
+    UpdateFirmwareResponse, UsePriorityChargingRequest, UsePriorityChargingResponse,
     VatNumberValidationRequest, VatNumberValidationResponse,
 };
 
 /// Same pattern as `ocpp_2_0_1_action!` (see `src/ocpp_2_0_1/actions.rs`): one marker type
 /// implementing [`Action`] plus `send_x`/`on_x`/`wait_for_x` convenience methods on
-/// [`OCPP2_1Client`], generated from one macro line per action. `NotifyReport` is the one
-/// OCPP 2.1 action missing here - `rust-ocpp`'s `wip_v2_1::messages::notify_report` module is
-/// still empty upstream (see CLAUDE.md); add it once that lands.
+/// [`OCPP2_1Client`], generated from one macro line per action.
 macro_rules! ocpp_2_1_action {
     ($name:ident, $req:ty, $res:ty, $action:literal, $send:ident, $on:ident, $wait_for:ident) => {
         #[doc = concat!("Marker type for the `", $action, "` action.")]
@@ -730,9 +574,24 @@ ocpp_2_1_action!(
     wait_for_notify_monitoring_report
 );
 ocpp_2_1_action!(
+    NotifyReport,
+    NotifyReportRequest,
+    NotifyReportResponse,
+    "NotifyReport",
+    send_notify_report,
+    on_notify_report,
+    wait_for_notify_report
+);
+// `NotifyPeriodicEventStream` is genuinely SEND-only in the OCPP-J 2.1 spec (no CALLRESULT),
+// so `ocpp_types` models it as one struct, not a Request/Response pair - unlike every other
+// action here. `Client`'s CALL/CALLRESULT engine has no SEND-frame support yet, so this keeps
+// modeling it as a call whose "response" is the same struct shape, matching this crate's
+// pre-existing (already spec-loose) behavior under `rust-ocpp`. The marker type is suffixed
+// `Action` to avoid colliding with the imported `NotifyPeriodicEventStream` message type.
+ocpp_2_1_action!(
+    NotifyPeriodicEventStreamAction,
     NotifyPeriodicEventStream,
-    NotifyPeriodicEventStreamRequest,
-    NotifyPeriodicEventStreamResponse,
+    NotifyPeriodicEventStream,
     "NotifyPeriodicEventStream",
     send_notify_periodic_event_stream,
     on_notify_periodic_event_stream,

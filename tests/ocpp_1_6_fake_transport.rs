@@ -8,9 +8,10 @@ use ocpp_client::{
     Client, ClientError, ProtocolError, TokioExecutor, TokioTimer, TransportEvent, TransportSink,
     TransportStream,
 };
-use rust_ocpp::v1_6::messages::heart_beat::{HeartbeatRequest, HeartbeatResponse};
-use rust_ocpp::v1_6::messages::trigger_message::{TriggerMessageRequest, TriggerMessageResponse};
-use rust_ocpp::v1_6::types::{MessageTrigger, TriggerMessageStatus};
+use ocpp_types::v16::common::{RequestedMessage, TriggerMessageResponseStatus};
+use ocpp_types::v16::{
+    HeartbeatRequest, HeartbeatResponse, TriggerMessageRequest, TriggerMessageResponse,
+};
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -45,13 +46,13 @@ async fn call_resolves_on_matching_result() {
     let message_id = frame[1].as_str().unwrap().to_string();
 
     let response = HeartbeatResponse {
-        current_time: chrono::Utc::now(),
+        current_time: chrono::Utc::now().to_rfc3339(),
     };
     let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
     peer_sink.send(result_frame).await.unwrap();
 
     let response = call.await.unwrap().unwrap();
-    assert!(response.current_time.timestamp() > 0);
+    assert!(!response.current_time.is_empty());
 }
 
 #[tokio::test]
@@ -95,13 +96,13 @@ async fn on_action_answers_a_call_from_the_peer() {
     client
         .on_trigger_message(|_req, _client| async move {
             Ok(TriggerMessageResponse {
-                status: TriggerMessageStatus::Accepted,
+                status: TriggerMessageResponseStatus::Accepted,
             })
         })
         .await;
 
     let request = TriggerMessageRequest {
-        requested_message: MessageTrigger::Heartbeat,
+        requested_message: RequestedMessage::Heartbeat,
         connector_id: None,
     };
     let call_frame =

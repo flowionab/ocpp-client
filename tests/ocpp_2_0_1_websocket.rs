@@ -2,7 +2,7 @@
 #![allow(clippy::result_large_err)]
 use futures::{SinkExt, StreamExt};
 use ocpp_client::connect_2_0_1;
-use rust_ocpp::v2_0_1::messages::heartbeat::HeartbeatRequest;
+use ocpp_types::v201::HeartbeatRequest;
 use serde_json::{Value, json};
 use tokio::net::TcpListener;
 use tokio_tungstenite::tungstenite::Message;
@@ -42,11 +42,11 @@ async fn heartbeat_round_trips_over_a_real_websocket() {
     });
 
     let client = connect_2_0_1(&format!("ws://{addr}"), None).await.unwrap();
-    let response = client.send_heartbeat(HeartbeatRequest {}).await.unwrap();
-    assert_eq!(
-        response.current_time.to_rfc3339(),
-        "2024-01-01T00:00:00+00:00"
-    );
+    let response = client
+        .send_heartbeat(HeartbeatRequest { custom_data: None })
+        .await
+        .unwrap();
+    assert_eq!(response.current_time, "2024-01-01T00:00:00Z");
 
     server.await.unwrap();
 }

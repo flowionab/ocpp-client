@@ -36,27 +36,37 @@ Gaps to close before pointing real hardware/fleets at this crate, in priority or
    (`tokio-tungstenite`'s handshake closure signature makes that one unavoidable without
    restructuring the test helper).
 
-4. **`NotifyReport` (OCPP 2.1) is unimplemented** — blocked upstream on `rust-ocpp`'s
-   `wip_v2_1::messages::notify_report` being an empty module. Blocks 2.1 device-model
-   reporting until upstream lands it or the fork is patched. Not otherwise actionable from
-   here (nothing to fix in this crate until upstream lands it), so instead of a code change,
-   flagged it in the README's supported-protocols table so users don't discover the gap by
-   surprise.
+4. ~~**`NotifyReport` (OCPP 2.1) is unimplemented**~~ **Done.** Resolved by migrating message
+   types from the `rust-ocpp` fork to [`ocpp-types`](https://github.com/flowionab/ocpp-types)
+   (see `MIGRATION_OCPP_TYPES.md`), which ships a real `NotifyReportRequest`/`Response`.
+   `ocpp_2_1_action!(NotifyReport, ...)` is wired up in `src/ocpp_2_1/actions.rs` like every
+   other action, covered by a fake-transport test proving a full CALL/CALLRESULT round trip
+   (`tests/ocpp_2_1_fake_transport.rs::call_resolves_notify_report_now_that_its_wired_up`).
+   Every 2.1 action is now implemented (with one modeling caveat: `NotifyPeriodicEventStream`
+   is spec-defined as SEND-only but `Client`'s engine has no SEND-frame support yet, so it's
+   still modeled as a call/response pair - see the comment above its `ocpp_2_1_action!`
+   invocation).
 
-5. **Versioning/release.** Crate is `0.2.0-alpha.1` and depends on a git fork of `rust-ocpp`
-   rather than a crates.io release. Not publishable to crates.io as-is (git deps generally
-   block `cargo publish` for a lib unless the fork is also published); API is alpha-stability.
+5. **Versioning/release.** Crate is `0.2.0-alpha.1`. The git-fork dependency blocker is gone -
+   `ocpp-types` is a real crates.io release (`0.1.1`), not a git dependency, so that specific
+   `cargo publish` obstacle no longer applies. `ocpp-types` itself is early (`0.1.x`, same org as
+   the old `rust-ocpp` fork - see `MIGRATION_OCPP_TYPES.md`'s Risk section for a codegen bug
+   found and fixed upstream mid-migration), so pin it deliberately rather than assuming API
+   stability. API here is still alpha-stability regardless.
 
-6. **README overclaims embedded transport support.** It advertises "STM32-compatible
+6. ~~**README overclaims embedded transport support.**~~ **Done.** It advertised "STM32-compatible
    transport layer" / "STM32 transport: ✅ Supported," but only the WebSocket transport
-   actually exists. `no_std`+`alloc` compiles and the `TransportSink`/`TransportStream` traits
-   exist to build one against, but no embedded transport implementation ships today. **In
-   progress.** `crates/ocpp-transport-embassy-net` (new workspace member) is a chip-agnostic
+   actually existed. `no_std`+`alloc` compiles and the `TransportSink`/`TransportStream` traits
+   exist to build one against, and now a real embedded transport implementation ships too.
+   `crates/ocpp-transport-embassy-net` (new workspace member) is a chip-agnostic
    `no_std`+`alloc` WebSocket transport over `embassy-net`, built on `embedded-websocket`'s
    sans-io core - `cargo check`/`clippy -D warnings` pass against the real
-   `thumbv7em-none-eabihf` target (see that crate's README for the exact commands), but it has
-   not been run against real hardware or a real CSMS yet, has no TLS support, and simplifies the
-   WebSocket close handshake (no close-reply frame sent). Checking it against a real embedded
+   `thumbv7em-none-eabihf` target (see that crate's README for the exact commands). It has not
+   been run against real hardware or a real CSMS, has no TLS support, and simplifies the
+   WebSocket close handshake (no close-reply frame sent) - accepted as-is: any real board deploy
+   requires hardware-specific customization anyway, so hardware-in-the-loop validation and TLS
+   are left to downstream integrators rather than blocking this crate's readiness. Checking it
+   against a real embedded
    target (not just the host, which the top-level `no_std` CI job only does) surfaced two things
    worth knowing about `ocpp-client` itself, documented in the new crate's README:
    - `uuid`'s `v4` feature (used for OCPP-J message IDs) pulls in `getrandom`, which has no
@@ -78,11 +88,12 @@ Gaps to close before pointing real hardware/fleets at this crate, in priority or
    between `ocpp-transport-embassy-net`'s `RngFactory` and `getrandom`'s custom backend (closing
    the loop on the `getrandom` gap above - `cargo build` there does a *full link*, not just
    `check`, specifically to catch the missing-custom-backend-symbol failure that a `check`-only
-   CI job wouldn't). Builds and links for `thumbv7em-none-eabihf`; **not yet flashed to real
-   hardware or tested against a real CSMS.** CI's new `embedded` job covers both new crates
-   against the real target on every push/PR (`.github/workflows/ci.yaml`). Still needed:
-   hardware-in-the-loop testing, then TLS - see `ocpp-transport-embassy-net`'s README's "Next
-   steps".
+   CI job wouldn't). Builds and links for `thumbv7em-none-eabihf`; not yet flashed to real
+   hardware or tested against a real CSMS, which is expected to happen per-board during
+   downstream integration rather than in this repo. CI's new `embedded` job covers both new
+   crates against the real target on every push/PR (`.github/workflows/ci.yaml`). See
+   `ocpp-transport-embassy-net`'s README's "Next steps" for hardware-in-the-loop testing and TLS
+   as optional follow-ups for integrators.
 
 7. ~~**No structured logging/telemetry.**~~ **Done.** Every diagnostic in `client.rs` (malformed
    frames, unparsable CALL/CALLRESULT/CALLERROR, failed response encode/send, reconnect

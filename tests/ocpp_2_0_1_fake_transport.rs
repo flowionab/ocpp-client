@@ -8,10 +8,8 @@ use ocpp_client::{
     Client, ClientError, ProtocolError, TokioExecutor, TokioTimer, TransportEvent, TransportSink,
     TransportStream,
 };
-use rust_ocpp::v2_0_1::enumerations::reset_enum_type::ResetEnumType;
-use rust_ocpp::v2_0_1::enumerations::reset_status_enum_type::ResetStatusEnumType;
-use rust_ocpp::v2_0_1::messages::heartbeat::{HeartbeatRequest, HeartbeatResponse};
-use rust_ocpp::v2_0_1::messages::reset::{ResetRequest, ResetResponse};
+use ocpp_types::v201::common::{ResetEnum, ResetStatusEnum};
+use ocpp_types::v201::{HeartbeatRequest, HeartbeatResponse, ResetRequest, ResetResponse};
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -38,7 +36,11 @@ async fn recv_frame(peer_source: &mut common::FakeSource) -> Value {
 async fn call_resolves_on_matching_result() {
     let (client, mut peer_sink, mut peer_source) = client_pair(Duration::from_secs(5));
 
-    let call = tokio::spawn(async move { client.send_heartbeat(HeartbeatRequest {}).await });
+    let call = tokio::spawn(async move {
+        client
+            .send_heartbeat(HeartbeatRequest { custom_data: None })
+            .await
+    });
 
     let frame = recv_frame(&mut peer_source).await;
     assert_eq!(frame[0], 2);
@@ -46,20 +48,25 @@ async fn call_resolves_on_matching_result() {
     let message_id = frame[1].as_str().unwrap().to_string();
 
     let response = HeartbeatResponse {
-        current_time: chrono::Utc::now(),
+        current_time: chrono::Utc::now().to_rfc3339(),
+        custom_data: None,
     };
     let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
     peer_sink.send(result_frame).await.unwrap();
 
     let response = call.await.unwrap().unwrap();
-    assert!(response.current_time.timestamp() > 0);
+    assert!(!response.current_time.is_empty());
 }
 
 #[tokio::test]
 async fn call_surfaces_protocol_error() {
     let (client, mut peer_sink, mut peer_source) = client_pair(Duration::from_secs(5));
 
-    let call = tokio::spawn(async move { client.send_heartbeat(HeartbeatRequest {}).await });
+    let call = tokio::spawn(async move {
+        client
+            .send_heartbeat(HeartbeatRequest { custom_data: None })
+            .await
+    });
 
     let frame = recv_frame(&mut peer_source).await;
     let message_id = frame[1].as_str().unwrap().to_string();
@@ -83,7 +90,7 @@ async fn call_times_out_without_a_response() {
     let (client, _peer_sink, _peer_source) = client_pair(Duration::from_millis(50));
 
     let err = client
-        .send_heartbeat(HeartbeatRequest {})
+        .send_heartbeat(HeartbeatRequest { custom_data: None })
         .await
         .unwrap_err();
     assert!(matches!(err, ClientError::Timeout));
@@ -96,14 +103,16 @@ async fn on_action_answers_a_call_from_the_peer() {
     client
         .on_reset(|_req, _client| async move {
             Ok(ResetResponse {
-                status: ResetStatusEnumType::Accepted,
+                custom_data: None,
+                status: ResetStatusEnum::Accepted,
                 status_info: None,
             })
         })
         .await;
 
     let request = ResetRequest {
-        request_type: ResetEnumType::Immediate,
+        custom_data: None,
+        r#type: ResetEnum::Immediate,
         evse_id: None,
     };
     let call_frame = serde_json::to_string(&json!([2, "req-1", "Reset", request])).unwrap();
