@@ -124,7 +124,14 @@ Gaps to close before pointing real hardware/fleets at this crate, in priority or
    configured root, another proves the *default* config still rejects that same self-signed
    cert (i.e. the escape hatch doesn't weaken the default trust posture). `rcgen` (dev-only,
    `aws_lc_rs` backend to match `rustls`'s default and keep only one crypto provider in the
-   graph) generates the test certificate.
+   graph) generates the test certificate. OCPP Security Profile 3 (mutual TLS: client presents a
+   certificate, no HTTP Basic Auth) is covered too - `tests/ocpp_1_6_mtls.rs` builds a
+   `ClientConfig` via `.with_client_auth_cert(..)` and a server `ServerConfig` with a
+   `WebPkiClientVerifier` that only trusts that one client cert, proving a full CALL/CALLRESULT
+   round trip over mTLS; a second test proves the server rejects a client presenting no
+   certificate at all. Profiles 1/2/3 aren't modeled as a named concept anywhere in the crate -
+   they fall out of whatever the caller puts in `ConnectOptions` (`tls_config` +
+   `username`/`password`).
 
 9. **True bare-metal no_std, no `alloc`.** `Client<E>`'s bookkeeping (`src/client.rs`) is
    `alloc`-dependent by design: `Arc` for cross-task shared ownership, `BTreeMap` for the
