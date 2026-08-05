@@ -149,3 +149,40 @@ Gaps to close before pointing real hardware/fleets at this crate, in priority or
    worst-case latency, no fragmentation risk over long uptimes, and static memory budgeting for
    genuinely allocator-less embedded targets. No specific target driving this yet; tracked as a
    future goal.
+
+   Scoping pass (no code changes yet) turned up two layers to this, not one:
+
+   - **The collections are mechanical.** `BTreeMap<Uuid, OneShot<..>>` (pending responses),
+     `BTreeMap<String, Chan<..>>` ×2 (request/notification handler registries), `VecDeque<OneShot<()>>`
+     (pong waiters), `Chan<T>`'s internal `VecDeque<T>`, and `Vec<Arc<Signal>>` (ping/reconnect
+     subscriber fan-out, in `src/sync.rs`) all become `heapless::FnvIndexMap`/`Deque`/`Vec` with
+     const-generic capacities. The one real design question is a backpressure policy for `Chan`'s
+     currently-unbounded queue (drop oldest / reject / block the sender) - bounded-by-construction is
+     the point on embedded, so "unbounded" isn't an option to preserve. `Arc` itself (used so a
+     `Client` clone handed to a spawned task shares state with the original, and so `OneShot`'s
+     `Signal` can live in a lookup map while the caller independently awaits its own clone) needs a
+     compile-time-sized slot pool referenced by index instead, or a redesign where handlers don't need
+     independent ownership of shared state.
+   - **The actual crux is task spawning, not collections.** `Executor::spawn` (`src/runtime.rs`) takes
+     `Pin<Box<dyn Future<Output = ()> + Send>>`, and `Client` spawns a *new background task per call*
+     to `on()`, `on_notification()`, `on_ping()`, `on_reconnect()`, plus the read loop itself. That's a
+     heap-task model by construction. `embassy-executor` - the realistic no_std target - has no
+     equivalent: task pools are statically sized at compile time via `#[embassy_executor::task]`, with
+     no "spawn an arbitrary boxed future at runtime" escape hatch. Reaching true no-alloc means `Client`
+     can't spawn per-handler tasks dynamically anymore - it needs to poll a fixed, compile-time-bounded
+     set of registered handlers from one task instead (a hand-rolled `select` over an array of
+     futures). That's a real change to `on()`/`on_notification()`'s semantics (how many concurrent
+     handlers are supported becomes a compile-time constant), not just an internal swap - which is
+     exactly the kind of decision that should be driven by a real embedded target's actual constraints
+     rather than guessed at ahead of one.
+
+   Separately (surfaced by the same pass, but independent of alloc): `TransportSink`/`TransportStream`'s
+   method futures (`src/transport.rs`) are bounded `+ Send`, which is wrong for a single-threaded
+   embedded executor where futures are never required to be `Send` (embassy tasks are commonly `!Send`
+   - see the `getrandom`/`Spawner`/`Stack` gaps item 6 already documents for the embedded satellite
+   crates). Dropping that bound isn't a local change, though: `Client`'s background read loop awaits
+   those futures inside the async block handed to `Executor::spawn`, whose own signature requires
+   `Pin<Box<dyn Future<Output = ()> + Send>>` (needed by `TokioExecutor::spawn` → `tokio::spawn`, which
+   itself requires `Send`). Relax the transport bound alone and the default tokio/std build stops
+   compiling - fixing it properly means reworking `Executor::spawn`'s `Send` bound too, which is really
+   part of the same generic-parameter redesign as the rest of this item, not a separate one.
