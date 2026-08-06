@@ -21,7 +21,7 @@ default-members = ["."]
 [package]
 edition = '2024'
 name = "ocpp-client"
-version = "0.2.0"
+version = "0.2.1"
 description = "OCPP Client Implementation. Use this library to implement an OCPP charge point"
 repository = "https://github.com/flowionab/ocpp-client"
 license = "MIT OR Apache-2.0"
@@ -58,7 +58,7 @@ test = []
 [dependencies]
 # Strongly typed, no_std+no_alloc-by-default OCPP message types generated from the official
 # JSON schemas - see MIGRATION_OCPP_TYPES.md for why this replaced the rust-ocpp fork.
-ocpp-types = { version = "0.1.2", default-features = false, features = ["serde", "alloc"] }
+ocpp-types = { version = "0.1.3", default-features = false, features = ["serde", "alloc"] }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
 uuid = { version = "1", default-features = false, features = ["v4"] }
