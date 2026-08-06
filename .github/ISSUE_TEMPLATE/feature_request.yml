@@ -1,0 +1,48 @@
+name: Feature request
+description: Suggest a new action, transport, or capability for ocpp-client
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the suggestion. For a new OCPP action that's already defined in `ocpp-types`,
+        note this is usually a small, well-scoped change - see "Adding a new OCPP action" in
+        `CLAUDE.md`. A PR may be faster than an issue in that case.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: What are you trying to do that isn't currently possible or is awkward today?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What would you like to see added or changed?
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - New OCPP 1.6 action
+        - New OCPP 2.0.1 action
+        - New OCPP 2.1 action
+        - Transport (e.g. non-WebSocket)
+        - no_std/embedded support
+        - Other/not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Any workarounds you're using today, or other approaches you considered.
+    validations:
+      required: false
