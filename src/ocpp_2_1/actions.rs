@@ -23,7 +23,8 @@ use ocpp_types::v21::{
     GetBaseReportResponse, GetCertificateChainStatusRequest, GetCertificateChainStatusResponse,
     GetCertificateStatusRequest, GetCertificateStatusResponse, GetChargingProfilesRequest,
     GetChargingProfilesResponse, GetCompositeScheduleRequest, GetCompositeScheduleResponse,
-    GetDisplayMessagesRequest, GetDisplayMessagesResponse, GetInstalledCertificateIdsRequest,
+    GetDERControlRequest, GetDERControlResponse, GetDisplayMessagesRequest,
+    GetDisplayMessagesResponse, GetInstalledCertificateIdsRequest,
     GetInstalledCertificateIdsResponse, GetLocalListVersionRequest, GetLocalListVersionResponse,
     GetLogRequest, GetLogResponse, GetMonitoringReportRequest, GetMonitoringReportResponse,
     GetPeriodicEventStreamRequest, GetPeriodicEventStreamResponse, GetReportRequest,
@@ -51,16 +52,19 @@ use ocpp_types::v21::{
     ReservationStatusUpdateRequest, ReservationStatusUpdateResponse, ReserveNowRequest,
     ReserveNowResponse, ResetRequest, ResetResponse, SecurityEventNotificationRequest,
     SecurityEventNotificationResponse, SendLocalListRequest, SendLocalListResponse,
-    SetChargingProfileRequest, SetChargingProfileResponse, SetDefaultTariffRequest,
-    SetDefaultTariffResponse, SetMonitoringBaseRequest, SetMonitoringBaseResponse,
-    SetMonitoringLevelRequest, SetMonitoringLevelResponse, SetNetworkProfileRequest,
-    SetNetworkProfileResponse, SetVariableMonitoringRequest, SetVariableMonitoringResponse,
-    SetVariablesRequest, SetVariablesResponse, SignCertificateRequest, SignCertificateResponse,
-    StatusNotificationRequest, StatusNotificationResponse, TransactionEventRequest,
-    TransactionEventResponse, UnlockConnectorRequest, UnlockConnectorResponse,
-    UnpublishFirmwareRequest, UnpublishFirmwareResponse, UpdateFirmwareRequest,
-    UpdateFirmwareResponse, UsePriorityChargingRequest, UsePriorityChargingResponse,
-    VatNumberValidationRequest, VatNumberValidationResponse,
+    SetChargingProfileRequest, SetChargingProfileResponse, SetDERControlRequest,
+    SetDERControlResponse, SetDefaultTariffRequest, SetDefaultTariffResponse,
+    SetDisplayMessageRequest, SetDisplayMessageResponse, SetMonitoringBaseRequest,
+    SetMonitoringBaseResponse, SetMonitoringLevelRequest, SetMonitoringLevelResponse,
+    SetNetworkProfileRequest, SetNetworkProfileResponse, SetVariableMonitoringRequest,
+    SetVariableMonitoringResponse, SetVariablesRequest, SetVariablesResponse,
+    SignCertificateRequest, SignCertificateResponse, StatusNotificationRequest,
+    StatusNotificationResponse, TransactionEventRequest, TransactionEventResponse,
+    TriggerMessageRequest, TriggerMessageResponse, UnlockConnectorRequest, UnlockConnectorResponse,
+    UnpublishFirmwareRequest, UnpublishFirmwareResponse, UpdateDynamicScheduleRequest,
+    UpdateDynamicScheduleResponse, UpdateFirmwareRequest, UpdateFirmwareResponse,
+    UsePriorityChargingRequest, UsePriorityChargingResponse, VatNumberValidationRequest,
+    VatNumberValidationResponse,
 };
 
 /// Same pattern as `ocpp_2_0_1_action!` (see `src/ocpp_2_0_1/actions.rs`): one marker type
@@ -386,6 +390,15 @@ ocpp_2_1_action!(
     send_get_composite_schedule,
     on_get_composite_schedule,
     wait_for_get_composite_schedule
+);
+ocpp_2_1_action!(
+    GetDERControl,
+    GetDERControlRequest,
+    GetDERControlResponse,
+    "GetDERControl",
+    send_get_der_control,
+    on_get_der_control,
+    wait_for_get_der_control
 );
 ocpp_2_1_action!(
     GetDisplayMessages,
@@ -797,6 +810,24 @@ ocpp_2_1_action!(
     wait_for_set_default_tariff
 );
 ocpp_2_1_action!(
+    SetDERControl,
+    SetDERControlRequest,
+    SetDERControlResponse,
+    "SetDERControl",
+    send_set_der_control,
+    on_set_der_control,
+    wait_for_set_der_control
+);
+ocpp_2_1_action!(
+    SetDisplayMessage,
+    SetDisplayMessageRequest,
+    SetDisplayMessageResponse,
+    "SetDisplayMessage",
+    send_set_display_message,
+    on_set_display_message,
+    wait_for_set_display_message
+);
+ocpp_2_1_action!(
     SetMonitoringBase,
     SetMonitoringBaseRequest,
     SetMonitoringBaseResponse,
@@ -869,6 +900,15 @@ ocpp_2_1_action!(
     wait_for_transaction_event
 );
 ocpp_2_1_action!(
+    TriggerMessage,
+    TriggerMessageRequest,
+    TriggerMessageResponse,
+    "TriggerMessage",
+    send_trigger_message,
+    on_trigger_message,
+    wait_for_trigger_message
+);
+ocpp_2_1_action!(
     UnlockConnector,
     UnlockConnectorRequest,
     UnlockConnectorResponse,
@@ -885,6 +925,15 @@ ocpp_2_1_action!(
     send_unpublish_firmware,
     on_unpublish_firmware,
     wait_for_unpublish_firmware
+);
+ocpp_2_1_action!(
+    UpdateDynamicSchedule,
+    UpdateDynamicScheduleRequest,
+    UpdateDynamicScheduleResponse,
+    "UpdateDynamicSchedule",
+    send_update_dynamic_schedule,
+    on_update_dynamic_schedule,
+    wait_for_update_dynamic_schedule
 );
 ocpp_2_1_action!(
     UpdateFirmware,

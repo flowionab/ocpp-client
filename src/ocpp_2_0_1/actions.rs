@@ -35,7 +35,8 @@ use ocpp_types::v201::{
     ReportChargingProfilesRequest, ReportChargingProfilesResponse, RequestStartTransactionRequest,
     RequestStartTransactionResponse, RequestStopTransactionRequest, RequestStopTransactionResponse,
     ReservationStatusUpdateRequest, ReservationStatusUpdateResponse, ReserveNowRequest,
-    ReserveNowResponse, ResetRequest, ResetResponse, SendLocalListRequest, SendLocalListResponse,
+    ReserveNowResponse, ResetRequest, ResetResponse, SecurityEventNotificationRequest,
+    SecurityEventNotificationResponse, SendLocalListRequest, SendLocalListResponse,
     SetChargingProfileRequest, SetChargingProfileResponse, SetDisplayMessageRequest,
     SetDisplayMessageResponse, SetMonitoringBaseRequest, SetMonitoringBaseResponse,
     SetMonitoringLevelRequest, SetMonitoringLevelResponse, SetNetworkProfileRequest,
@@ -520,6 +521,15 @@ ocpp_2_0_1_action!(
     send_reset,
     on_reset,
     wait_for_reset
+);
+ocpp_2_0_1_action!(
+    SecurityEventNotification,
+    SecurityEventNotificationRequest,
+    SecurityEventNotificationResponse,
+    "SecurityEventNotification",
+    send_security_event_notification,
+    on_security_event_notification,
+    wait_for_security_event_notification
 );
 ocpp_2_0_1_action!(
     SendLocalList,

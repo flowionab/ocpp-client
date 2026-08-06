@@ -9,7 +9,10 @@ use ocpp_client::{
     TransportStream,
 };
 use ocpp_types::v201::common::{ResetEnum, ResetStatusEnum};
-use ocpp_types::v201::{HeartbeatRequest, HeartbeatResponse, ResetRequest, ResetResponse};
+use ocpp_types::v201::{
+    HeartbeatRequest, HeartbeatResponse, ResetRequest, ResetResponse,
+    SecurityEventNotificationRequest, SecurityEventNotificationResponse,
+};
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -122,6 +125,35 @@ async fn on_action_answers_a_call_from_the_peer() {
     assert_eq!(response[0], 3);
     assert_eq!(response[1], "req-1");
     assert_eq!(response[2]["status"], "Accepted");
+}
+
+// SecurityEventNotification's request/response types were already in ocpp-types 0.1.2 but the
+// wrapper wasn't wired up - see PRODUCTION-ROADMAP.md §6.1 (D1).
+#[tokio::test]
+async fn call_resolves_security_event_notification_now_that_its_wired_up() {
+    let (client, mut peer_sink, mut peer_source) = client_pair(Duration::from_secs(5));
+
+    let call = tokio::spawn(async move {
+        client
+            .send_security_event_notification(SecurityEventNotificationRequest {
+                custom_data: None,
+                tech_info: None,
+                timestamp: chrono::Utc::now().to_rfc3339(),
+                r#type: "MemoryExhaustion".try_into().unwrap(),
+            })
+            .await
+    });
+
+    let frame = recv_frame(&mut peer_source).await;
+    assert_eq!(frame[0], 2);
+    assert_eq!(frame[2], "SecurityEventNotification");
+    let message_id = frame[1].as_str().unwrap().to_string();
+
+    let response = SecurityEventNotificationResponse { custom_data: None };
+    let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
+    peer_sink.send(result_frame).await.unwrap();
+
+    call.await.unwrap().unwrap();
 }
 
 #[tokio::test]
