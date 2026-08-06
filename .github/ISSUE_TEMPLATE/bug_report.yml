@@ -1,0 +1,72 @@
+name: Bug report
+description: Report a problem with ocpp-client
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug. Please include enough detail for us to reproduce it.
+
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: A clear description of the bug, and what you expected to happen instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Minimal code sample or steps that trigger the issue.
+      render: rust
+    validations:
+      required: false
+
+  - type: input
+    id: version
+    attributes:
+      label: ocpp-client version
+      placeholder: "0.2.1"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: ocpp-version
+    attributes:
+      label: OCPP version(s) affected
+      multiple: true
+      options:
+        - "1.6"
+        - "2.0.1"
+        - "2.1"
+        - Not version-specific
+    validations:
+      required: true
+
+  - type: input
+    id: rust-version
+    attributes:
+      label: Rust version
+      description: Output of `rustc --version`
+    validations:
+      required: false
+
+  - type: dropdown
+    id: target
+    attributes:
+      label: Target environment
+      options:
+        - std (default, WebSocket transport)
+        - no_std + alloc (embedded)
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs / error output
+      render: shell
+    validations:
+      required: false
