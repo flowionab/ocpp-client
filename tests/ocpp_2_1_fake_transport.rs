@@ -8,10 +8,17 @@ use ocpp_client::{
     Client, ClientError, ProtocolError, TokioExecutor, TokioTimer, TransportEvent, TransportSink,
     TransportStream,
 };
-use ocpp_types::v21::common::{ResetEnum, ResetStatusEnum};
+use ocpp_types::v21::common::{
+    ChargingProfileStatusEnum, ChargingScheduleUpdate, DERControlEnum, DERControlStatusEnum,
+    DisplayMessageStatusEnum, MessageContent, MessageFormatEnum, MessageInfo, MessagePriorityEnum,
+    MessageTriggerEnum, ResetEnum, ResetStatusEnum, TriggerMessageStatusEnum,
+};
 use ocpp_types::v21::{
-    HeartbeatRequest, HeartbeatResponse, NotifyPeriodicEventStream, NotifyReportRequest,
-    NotifyReportResponse, ResetRequest, ResetResponse,
+    GetDERControlRequest, GetDERControlResponse, HeartbeatRequest, HeartbeatResponse,
+    NotifyPeriodicEventStream, NotifyReportRequest, NotifyReportResponse, ResetRequest,
+    ResetResponse, SetDERControlRequest, SetDERControlResponse, SetDisplayMessageRequest,
+    SetDisplayMessageResponse, TriggerMessageRequest, TriggerMessageResponse,
+    UpdateDynamicScheduleRequest, UpdateDynamicScheduleResponse,
 };
 use serde_json::{Value, json};
 use std::time::Duration;
@@ -152,6 +159,201 @@ async fn call_resolves_notify_report_now_that_its_wired_up() {
     let message_id = frame[1].as_str().unwrap().to_string();
 
     let response = NotifyReportResponse { custom_data: None };
+    let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
+    peer_sink.send(result_frame).await.unwrap();
+
+    call.await.unwrap().unwrap();
+}
+
+// TriggerMessage, SetDisplayMessage, GetDERControl, SetDERControl, and UpdateDynamicSchedule all
+// had request/response types in ocpp-types 0.1.2 already, but no action wrapper wired them up -
+// see PRODUCTION-ROADMAP.md §6.1 (D1).
+#[tokio::test]
+async fn call_resolves_trigger_message_now_that_its_wired_up() {
+    let (client, mut peer_sink, mut peer_source) = client_pair(Duration::from_secs(5));
+
+    let call = tokio::spawn(async move {
+        client
+            .send_trigger_message(TriggerMessageRequest {
+                custom_data: None,
+                custom_trigger: None,
+                evse: None,
+                requested_message: MessageTriggerEnum::Heartbeat,
+            })
+            .await
+    });
+
+    let frame = recv_frame(&mut peer_source).await;
+    assert_eq!(frame[0], 2);
+    assert_eq!(frame[2], "TriggerMessage");
+    let message_id = frame[1].as_str().unwrap().to_string();
+
+    let response = TriggerMessageResponse {
+        custom_data: None,
+        status: TriggerMessageStatusEnum::Accepted,
+        status_info: None,
+    };
+    let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
+    peer_sink.send(result_frame).await.unwrap();
+
+    call.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn call_resolves_set_display_message_now_that_its_wired_up() {
+    let (client, mut peer_sink, mut peer_source) = client_pair(Duration::from_secs(5));
+
+    let call = tokio::spawn(async move {
+        client
+            .send_set_display_message(SetDisplayMessageRequest {
+                custom_data: None,
+                message: MessageInfo {
+                    custom_data: None,
+                    display: None,
+                    end_date_time: None,
+                    id: 1,
+                    message: MessageContent {
+                        content: "Hello".try_into().unwrap(),
+                        custom_data: None,
+                        format: MessageFormatEnum::ASCII,
+                        language: None,
+                    },
+                    message_extra: None,
+                    priority: MessagePriorityEnum::NormalCycle,
+                    start_date_time: None,
+                    state: None,
+                    transaction_id: None,
+                },
+            })
+            .await
+    });
+
+    let frame = recv_frame(&mut peer_source).await;
+    assert_eq!(frame[0], 2);
+    assert_eq!(frame[2], "SetDisplayMessage");
+    let message_id = frame[1].as_str().unwrap().to_string();
+
+    let response = SetDisplayMessageResponse {
+        custom_data: None,
+        status: DisplayMessageStatusEnum::Accepted,
+        status_info: None,
+    };
+    let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
+    peer_sink.send(result_frame).await.unwrap();
+
+    call.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn call_resolves_get_der_control_now_that_its_wired_up() {
+    let (client, mut peer_sink, mut peer_source) = client_pair(Duration::from_secs(5));
+
+    let call = tokio::spawn(async move {
+        client
+            .send_get_der_control(GetDERControlRequest {
+                control_id: None,
+                control_type: Some(DERControlEnum::FreqDroop),
+                custom_data: None,
+                is_default: None,
+                request_id: 1,
+            })
+            .await
+    });
+
+    let frame = recv_frame(&mut peer_source).await;
+    assert_eq!(frame[0], 2);
+    assert_eq!(frame[2], "GetDERControl");
+    let message_id = frame[1].as_str().unwrap().to_string();
+
+    let response = GetDERControlResponse {
+        custom_data: None,
+        status: DERControlStatusEnum::Accepted,
+        status_info: None,
+    };
+    let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
+    peer_sink.send(result_frame).await.unwrap();
+
+    call.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn call_resolves_set_der_control_now_that_its_wired_up() {
+    let (client, mut peer_sink, mut peer_source) = client_pair(Duration::from_secs(5));
+
+    let call = tokio::spawn(async move {
+        client
+            .send_set_der_control(SetDERControlRequest {
+                control_id: "control-1".try_into().unwrap(),
+                control_type: DERControlEnum::FreqDroop,
+                curve: None,
+                custom_data: None,
+                enter_service: None,
+                fixed_p_f_absorb: None,
+                fixed_p_f_inject: None,
+                fixed_var: None,
+                freq_droop: None,
+                gradient: None,
+                is_default: false,
+                limit_max_discharge: None,
+            })
+            .await
+    });
+
+    let frame = recv_frame(&mut peer_source).await;
+    assert_eq!(frame[0], 2);
+    assert_eq!(frame[2], "SetDERControl");
+    let message_id = frame[1].as_str().unwrap().to_string();
+
+    let response = SetDERControlResponse {
+        custom_data: None,
+        status: DERControlStatusEnum::Accepted,
+        status_info: None,
+        superseded_ids: None,
+    };
+    let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
+    peer_sink.send(result_frame).await.unwrap();
+
+    call.await.unwrap().unwrap();
+}
+
+#[tokio::test]
+async fn call_resolves_update_dynamic_schedule_now_that_its_wired_up() {
+    let (client, mut peer_sink, mut peer_source) = client_pair(Duration::from_secs(5));
+
+    let call = tokio::spawn(async move {
+        client
+            .send_update_dynamic_schedule(UpdateDynamicScheduleRequest {
+                charging_profile_id: 1,
+                custom_data: None,
+                schedule_update: ChargingScheduleUpdate {
+                    custom_data: None,
+                    discharge_limit: None,
+                    discharge_limit_l2: None,
+                    discharge_limit_l3: None,
+                    limit: None,
+                    limit_l2: None,
+                    limit_l3: None,
+                    setpoint: None,
+                    setpoint_l2: None,
+                    setpoint_l3: None,
+                    setpoint_reactive: None,
+                    setpoint_reactive_l2: None,
+                    setpoint_reactive_l3: None,
+                },
+            })
+            .await
+    });
+
+    let frame = recv_frame(&mut peer_source).await;
+    assert_eq!(frame[0], 2);
+    assert_eq!(frame[2], "UpdateDynamicSchedule");
+    let message_id = frame[1].as_str().unwrap().to_string();
+
+    let response = UpdateDynamicScheduleResponse {
+        custom_data: None,
+        status: ChargingProfileStatusEnum::Accepted,
+        status_info: None,
+    };
     let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
     peer_sink.send(result_frame).await.unwrap();
 
