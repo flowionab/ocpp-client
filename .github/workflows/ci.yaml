@@ -42,6 +42,11 @@ jobs:
       # the default feature set - a plain `cargo test` never runs them.
       - name: Test (default features + test)
         run: cargo test --features test
+      # Compile-only check for benches/ - catches API breakage in the benchmarks without
+      # asserting on timing, which would be flaky on shared CI runners. Run actual benchmarks
+      # locally with `cargo bench`.
+      - name: Benches compile
+        run: cargo bench --no-run
 
   no_std:
     runs-on: ubuntu-latest
