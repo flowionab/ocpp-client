@@ -67,17 +67,20 @@ per-crate READMEs are specifically about the **embedded** satellite crates
    and `::on_notify_periodic_event_stream_fires_and_never_sends_a_reply`, the latter also
    asserting the client never auto-replies to a received SEND.
 
-5. **Versioning/release.** Crate is `0.3.0` (unreleased; 0.2.2 is the newest on crates.io). The
-   git-fork dependency blocker is long gone - `ocpp-types` is a real crates.io release (`0.1.3`),
-   not a git dependency. `ocpp-types` itself is still early (`0.1.x`, same org as the old
+5. **Versioning/release.** Crate is `0.4.0` (unreleased; 0.3.0 is the newest on crates.io). The
+   git-fork dependency blocker is long gone - `ocpp-types` is a real crates.io release (`0.2.0`),
+   not a git dependency. `ocpp-types` itself is still early (`0.2.x`, same org as the old
    `rust-ocpp` fork - see `MIGRATION_OCPP_TYPES.md`'s Risk section for a codegen bug found and
-   fixed upstream mid-migration), so pin it deliberately rather than assuming API stability. This
-   crate's own API is pre-1.0 and still moving: 0.3.0 alone carries breaking changes to
-   `TransportSink`/`TransportStream`, `ReconnectPolicy`, and `ConnectOptions`' defaults.
+   fixed upstream mid-migration), so pin it deliberately rather than assuming API stability - its
+   0.2.0 was itself a breaking release, and the section at the bottom of that file records what it
+   cost here. This crate's own API is pre-1.0 and still moving: 0.3.0 carried breaking changes to
+   `TransportSink`/`TransportStream`, `ReconnectPolicy` and `ConnectOptions`' defaults, and 0.4.0
+   changes every `dateTime` field's type and adds a `customData` type parameter to the 2.x
+   markers.
 
    Release metadata was tidied at the same time: `rust-version = "1.87"` (verified with
-   `cargo +1.87 check --lib --all-features`; the binding constraint is `heapless` 0.9 via
-   `ocpp-types`, and building the *test suite* needs 1.88 for dev-dependencies), plus
+   `cargo +1.87 check --lib --all-features`; the binding constraint is `ocpp-types`, which
+   declares the same 1.87, and building the *test suite* needs 1.88 for dev-dependencies), plus
    `categories`, `readme`, `documentation`, a `keywords` list that finally mentions 2.1, and an
    `exclude` that keeps `.idea/`/`.github/` out of the published tarball - `.idea/` had been
    shipping inside the crate through 0.2.2, and was also purged from git history.

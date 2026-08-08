@@ -11,6 +11,7 @@ mod common;
 use common::{PongBehavior, fake_transport_pair, spawn_peer};
 use ocpp_client::ocpp_1_6::{Heartbeat, OCPP1_6Client};
 use ocpp_client::{Client, ClientConfig, ClientError, TokioExecutor, TokioTimer, TransportEvent};
+use ocpp_types::OcppTimestamp;
 use ocpp_types::v16::{HeartbeatRequest, HeartbeatResponse};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -150,7 +151,7 @@ async fn replacing_a_handler_stops_the_previous_handler_task() {
             let _ = &guard;
             async move {
                 Ok(HeartbeatResponse {
-                    current_time: "2024-01-01T00:00:00Z".into(),
+                    current_time: OcppTimestamp::parse_rfc3339("2024-01-01T00:00:00Z").unwrap(),
                 })
             }
         })
@@ -165,7 +166,7 @@ async fn replacing_a_handler_stops_the_previous_handler_task() {
     client
         .on::<Heartbeat, _, _>(|_req, _client| async move {
             Ok(HeartbeatResponse {
-                current_time: "2024-01-01T00:00:00Z".into(),
+                current_time: OcppTimestamp::parse_rfc3339("2024-01-01T00:00:00Z").unwrap(),
             })
         })
         .await;
@@ -197,7 +198,7 @@ async fn the_replacement_handler_is_the_one_that_answers() {
             async move {
                 counter.fetch_add(1, Ordering::SeqCst);
                 Ok(HeartbeatResponse {
-                    current_time: "2024-01-01T00:00:00Z".into(),
+                    current_time: OcppTimestamp::parse_rfc3339("2024-01-01T00:00:00Z").unwrap(),
                 })
             }
         })
@@ -210,7 +211,7 @@ async fn the_replacement_handler_is_the_one_that_answers() {
             async move {
                 counter.fetch_add(1, Ordering::SeqCst);
                 Ok(HeartbeatResponse {
-                    current_time: "2024-01-01T00:00:00Z".into(),
+                    current_time: OcppTimestamp::parse_rfc3339("2024-01-01T00:00:00Z").unwrap(),
                 })
             }
         })
@@ -254,7 +255,7 @@ async fn wait_for_unregisters_so_later_calls_are_not_swallowed() {
             client
                 .wait_for::<Heartbeat, _, _>(|_req, _client| async move {
                     Ok(HeartbeatResponse {
-                        current_time: "2024-01-01T00:00:00Z".into(),
+                        current_time: OcppTimestamp::parse_rfc3339("2024-01-01T00:00:00Z").unwrap(),
                     })
                 })
                 .await

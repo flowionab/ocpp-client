@@ -3,6 +3,8 @@ use crate::error::ClientError;
 use crate::ocpp_2_1::OCPP2_1Client;
 use crate::ocpp_2_1::error::OCPP2_1Error;
 use core::future::Future;
+use core::marker::PhantomData;
+use ocpp_types::v21::common::CustomData;
 use ocpp_types::v21::{
     AFRRSignalRequest, AFRRSignalResponse, AdjustPeriodicEventStreamRequest,
     AdjustPeriodicEventStreamResponse, AuthorizeRequest, AuthorizeResponse, BatterySwapRequest,
@@ -66,30 +68,45 @@ use ocpp_types::v21::{
     UsePriorityChargingRequest, UsePriorityChargingResponse, VatNumberValidationRequest,
     VatNumberValidationResponse,
 };
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
-/// Same pattern as `ocpp_2_0_1_action!` (see `src/ocpp_2_0_1/actions.rs`): one marker type
-/// implementing [`Action`] plus `send_x`/`on_x`/`wait_for_x` convenience methods on
+/// Same pattern as `ocpp_2_0_1_action!` (see `src/ocpp_2_0_1/actions.rs`, whose documentation
+/// covers the `customData` type parameter and why the generated methods stay concrete): one
+/// marker type implementing [`Action`] plus `send_x`/`on_x`/`wait_for_x` convenience methods on
 /// [`OCPP2_1Client`], generated from one macro line per action.
 macro_rules! ocpp_2_1_action {
-    ($name:ident, $req:ty, $res:ty, $action:literal, $send:ident, $on:ident, $wait_for:ident) => {
+    ($name:ident, $req:ident, $res:ident, $action:literal, $send:ident, $on:ident, $wait_for:ident) => {
         #[doc = concat!("Marker type for the `", $action, "` action.")]
-        pub struct $name;
+        ///
+        /// `C` is the type of the message's `customData` field, defaulting to the
+        /// specification's [`CustomData`]. Name another to read or write a vendor extension
+        /// through [`Client::call`](crate::Client::call)/[`Client::on`](crate::Client::on), or
+        /// [`NoCustomData`](ocpp_types::NoCustomData) to discard it and pay one byte instead of
+        /// the field's full width at every node of the message.
+        pub struct $name<C = CustomData>(PhantomData<fn() -> C>);
 
-        impl Action for $name {
+        impl<C> Action for $name<C>
+        where
+            C: Serialize + DeserializeOwned + Send + Sync + 'static,
+        {
             const NAME: &'static str = $action;
-            type Request = $req;
-            type Response = $res;
+            type Request = $req<C>;
+            type Response = $res<C>;
         }
 
         impl OCPP2_1Client {
-            pub async fn $send(&self, request: $req) -> Result<$res, ClientError<OCPP2_1Error>> {
+            pub async fn $send(
+                &self,
+                request: $req<CustomData>,
+            ) -> Result<$res<CustomData>, ClientError<OCPP2_1Error>> {
                 self.call::<$name>(request).await
             }
 
             pub async fn $on<F, FF>(&self, callback: F)
             where
-                F: FnMut($req, Self) -> FF + Send + Sync + 'static,
-                FF: Future<Output = Result<$res, OCPP2_1Error>> + Send,
+                F: FnMut($req<CustomData>, Self) -> FF + Send + Sync + 'static,
+                FF: Future<Output = Result<$res<CustomData>, OCPP2_1Error>> + Send,
             {
                 self.on::<$name, F, FF>(callback).await
             }
@@ -98,10 +115,10 @@ macro_rules! ocpp_2_1_action {
             pub async fn $wait_for<F, FF>(
                 &self,
                 callback: F,
-            ) -> Result<$req, ClientError<OCPP2_1Error>>
+            ) -> Result<$req<CustomData>, ClientError<OCPP2_1Error>>
             where
-                F: FnMut($req, Self) -> FF + Send + Sync + 'static,
-                FF: Future<Output = Result<$res, OCPP2_1Error>> + Send,
+                F: FnMut($req<CustomData>, Self) -> FF + Send + Sync + 'static,
+                FF: Future<Output = Result<$res<CustomData>, OCPP2_1Error>> + Send,
             {
                 self.wait_for::<$name, F, FF>(callback).await
             }
@@ -114,23 +131,32 @@ macro_rules! ocpp_2_1_action {
 /// `NotifyPeriodicEventStream`), not a Request/Response pair, and the generated `$on` callback
 /// returns nothing, since the spec forbids replying to a `SEND`.
 macro_rules! ocpp_2_1_send_action {
-    ($name:ident, $payload:ty, $action:literal, $send:ident, $on:ident) => {
+    ($name:ident, $payload:ident, $action:literal, $send:ident, $on:ident) => {
         #[doc = concat!("Marker type for the `", $action, "` SEND message.")]
-        pub struct $name;
+        ///
+        /// `C` is the type of the payload's `customData` field, exactly as for the CALL actions
+        /// above.
+        pub struct $name<C = CustomData>(PhantomData<fn() -> C>);
 
-        impl SendAction for $name {
+        impl<C> SendAction for $name<C>
+        where
+            C: Serialize + DeserializeOwned + Send + Sync + 'static,
+        {
             const NAME: &'static str = $action;
-            type Payload = $payload;
+            type Payload = $payload<C>;
         }
 
         impl OCPP2_1Client {
-            pub async fn $send(&self, payload: $payload) -> Result<(), ClientError<OCPP2_1Error>> {
+            pub async fn $send(
+                &self,
+                payload: $payload<CustomData>,
+            ) -> Result<(), ClientError<OCPP2_1Error>> {
                 self.send_notification::<$name>(payload).await
             }
 
             pub async fn $on<F, FF>(&self, callback: F)
             where
-                F: FnMut($payload, Self) -> FF + Send + Sync + 'static,
+                F: FnMut($payload<CustomData>, Self) -> FF + Send + Sync + 'static,
                 FF: Future<Output = ()> + Send,
             {
                 self.on_notification::<$name, F, FF>(callback).await

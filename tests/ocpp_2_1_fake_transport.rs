@@ -8,6 +8,7 @@ use ocpp_client::{
     Client, ClientError, ProtocolError, TokioExecutor, TokioTimer, TransportEvent, TransportSink,
     TransportStream,
 };
+use ocpp_types::OcppTimestamp;
 use ocpp_types::v21::common::{
     ChargingProfileStatusEnum, ChargingScheduleUpdate, DERControlEnum, DERControlStatusEnum,
     DisplayMessageStatusEnum, MessageContent, MessageFormatEnum, MessageInfo, MessagePriorityEnum,
@@ -57,15 +58,15 @@ async fn call_resolves_on_matching_result() {
     assert_eq!(frame[2], "Heartbeat");
     let message_id = frame[1].as_str().unwrap().to_string();
 
-    let response = HeartbeatResponse {
+    let response: HeartbeatResponse = HeartbeatResponse {
         custom_data: None,
-        current_time: chrono::Utc::now().to_rfc3339(),
+        current_time: OcppTimestamp::parse_rfc3339("2024-01-01T00:00:00Z").unwrap(),
     };
     let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
     peer_sink.send(result_frame).await.unwrap();
 
     let response = call.await.unwrap().unwrap();
-    assert!(!response.current_time.is_empty());
+    assert_eq!(response.current_time.unix_seconds(), 1_704_067_200);
 }
 
 #[tokio::test]
@@ -120,7 +121,7 @@ async fn on_action_answers_a_call_from_the_peer() {
         })
         .await;
 
-    let request = ResetRequest {
+    let request: ResetRequest = ResetRequest {
         custom_data: None,
         r#type: ResetEnum::Immediate,
         evse_id: None,
@@ -144,7 +145,7 @@ async fn call_resolves_notify_report_now_that_its_wired_up() {
         client
             .send_notify_report(NotifyReportRequest {
                 custom_data: None,
-                generated_at: "2024-01-01T00:00:00Z".to_string(),
+                generated_at: OcppTimestamp::parse_rfc3339("2024-01-01T00:00:00Z").unwrap(),
                 report_data: None,
                 request_id: 1,
                 seq_no: 0,
@@ -158,7 +159,7 @@ async fn call_resolves_notify_report_now_that_its_wired_up() {
     assert_eq!(frame[2], "NotifyReport");
     let message_id = frame[1].as_str().unwrap().to_string();
 
-    let response = NotifyReportResponse { custom_data: None };
+    let response: NotifyReportResponse = NotifyReportResponse { custom_data: None };
     let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
     peer_sink.send(result_frame).await.unwrap();
 
@@ -188,7 +189,7 @@ async fn call_resolves_trigger_message_now_that_its_wired_up() {
     assert_eq!(frame[2], "TriggerMessage");
     let message_id = frame[1].as_str().unwrap().to_string();
 
-    let response = TriggerMessageResponse {
+    let response: TriggerMessageResponse = TriggerMessageResponse {
         custom_data: None,
         status: TriggerMessageStatusEnum::Accepted,
         status_info: None,
@@ -213,7 +214,7 @@ async fn call_resolves_set_display_message_now_that_its_wired_up() {
                     end_date_time: None,
                     id: 1,
                     message: MessageContent {
-                        content: "Hello".try_into().unwrap(),
+                        content: "Hello".into(),
                         custom_data: None,
                         format: MessageFormatEnum::ASCII,
                         language: None,
@@ -233,7 +234,7 @@ async fn call_resolves_set_display_message_now_that_its_wired_up() {
     assert_eq!(frame[2], "SetDisplayMessage");
     let message_id = frame[1].as_str().unwrap().to_string();
 
-    let response = SetDisplayMessageResponse {
+    let response: SetDisplayMessageResponse = SetDisplayMessageResponse {
         custom_data: None,
         status: DisplayMessageStatusEnum::Accepted,
         status_info: None,
@@ -265,7 +266,7 @@ async fn call_resolves_get_der_control_now_that_its_wired_up() {
     assert_eq!(frame[2], "GetDERControl");
     let message_id = frame[1].as_str().unwrap().to_string();
 
-    let response = GetDERControlResponse {
+    let response: GetDERControlResponse = GetDERControlResponse {
         custom_data: None,
         status: DERControlStatusEnum::Accepted,
         status_info: None,
@@ -304,7 +305,7 @@ async fn call_resolves_set_der_control_now_that_its_wired_up() {
     assert_eq!(frame[2], "SetDERControl");
     let message_id = frame[1].as_str().unwrap().to_string();
 
-    let response = SetDERControlResponse {
+    let response: SetDERControlResponse = SetDERControlResponse {
         custom_data: None,
         status: DERControlStatusEnum::Accepted,
         status_info: None,
@@ -349,7 +350,7 @@ async fn call_resolves_update_dynamic_schedule_now_that_its_wired_up() {
     assert_eq!(frame[2], "UpdateDynamicSchedule");
     let message_id = frame[1].as_str().unwrap().to_string();
 
-    let response = UpdateDynamicScheduleResponse {
+    let response: UpdateDynamicScheduleResponse = UpdateDynamicScheduleResponse {
         custom_data: None,
         status: ChargingProfileStatusEnum::Accepted,
         status_info: None,
@@ -380,7 +381,7 @@ async fn send_notify_periodic_event_stream_writes_a_send_frame_and_does_not_wait
     let (client, mut peer_sink, mut peer_source) = client_pair(Duration::from_secs(5));
 
     let payload = NotifyPeriodicEventStream {
-        basetime: "2024-08-27T12:30:40Z".to_string(),
+        basetime: OcppTimestamp::parse_rfc3339("2024-08-27T12:30:40Z").unwrap(),
         custom_data: None,
         data: Vec::new(),
         id: 123,
@@ -413,9 +414,9 @@ async fn send_notify_periodic_event_stream_writes_a_send_frame_and_does_not_wait
     assert_eq!(next_frame[0], 2);
     assert_eq!(next_frame[2], "Heartbeat");
     let message_id = next_frame[1].as_str().unwrap().to_string();
-    let response = HeartbeatResponse {
+    let response: HeartbeatResponse = HeartbeatResponse {
         custom_data: None,
-        current_time: chrono::Utc::now().to_rfc3339(),
+        current_time: OcppTimestamp::parse_rfc3339("2024-01-01T00:00:00Z").unwrap(),
     };
     peer_sink
         .send(serde_json::to_string(&json!([3, message_id, response])).unwrap())

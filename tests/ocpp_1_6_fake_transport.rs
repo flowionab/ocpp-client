@@ -8,7 +8,10 @@ use ocpp_client::{
     Client, ClientError, ProtocolError, TokioExecutor, TokioTimer, TransportEvent, TransportSink,
     TransportStream,
 };
-use ocpp_types::v16::common::{RequestedMessage, TriggerMessageResponseStatus};
+use ocpp_types::OcppTimestamp;
+use ocpp_types::v16::common::{
+    TriggerMessageRequestRequestedMessage, TriggerMessageResponseStatus,
+};
 use ocpp_types::v16::{
     HeartbeatRequest, HeartbeatResponse, TriggerMessageRequest, TriggerMessageResponse,
 };
@@ -46,13 +49,13 @@ async fn call_resolves_on_matching_result() {
     let message_id = frame[1].as_str().unwrap().to_string();
 
     let response = HeartbeatResponse {
-        current_time: chrono::Utc::now().to_rfc3339(),
+        current_time: OcppTimestamp::parse_rfc3339("2024-01-01T00:00:00Z").unwrap(),
     };
     let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
     peer_sink.send(result_frame).await.unwrap();
 
     let response = call.await.unwrap().unwrap();
-    assert!(!response.current_time.is_empty());
+    assert_eq!(response.current_time.unix_seconds(), 1_704_067_200);
 }
 
 #[tokio::test]
@@ -102,7 +105,7 @@ async fn on_action_answers_a_call_from_the_peer() {
         .await;
 
     let request = TriggerMessageRequest {
-        requested_message: RequestedMessage::Heartbeat,
+        requested_message: TriggerMessageRequestRequestedMessage::Heartbeat,
         connector_id: None,
     };
     let call_frame =

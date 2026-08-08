@@ -11,6 +11,7 @@ use ocpp_client::{
     ConnectOptions, OcppVersion, ReconnectBehavior, ReconnectPolicy, Reconnector, TransportError,
     TransportSink, TransportStream, connect_1_6, websocket_transport,
 };
+use ocpp_types::OcppTimestamp;
 use ocpp_types::v16::HeartbeatRequest;
 use serde_json::{Value, json};
 use std::future::Future;
@@ -123,7 +124,7 @@ async fn a_custom_reconnector_redials_an_address_the_client_was_never_given() {
             .await
             .unwrap()
             .current_time,
-        "2024-01-01T00:00:00Z"
+        OcppTimestamp::parse_rfc3339("2024-01-01T00:00:00Z").unwrap()
     );
     first_server.await.unwrap();
 
@@ -138,7 +139,7 @@ async fn a_custom_reconnector_redials_an_address_the_client_was_never_given() {
             .await
             .unwrap()
             .current_time,
-        "2024-01-01T00:00:00Z"
+        OcppTimestamp::parse_rfc3339("2024-01-01T00:00:00Z").unwrap()
     );
     second_server.await.unwrap();
 }

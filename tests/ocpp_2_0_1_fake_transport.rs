@@ -8,6 +8,7 @@ use ocpp_client::{
     Client, ClientError, ProtocolError, TokioExecutor, TokioTimer, TransportEvent, TransportSink,
     TransportStream,
 };
+use ocpp_types::OcppTimestamp;
 use ocpp_types::v201::common::{ResetEnum, ResetStatusEnum};
 use ocpp_types::v201::{
     HeartbeatRequest, HeartbeatResponse, ResetRequest, ResetResponse,
@@ -50,15 +51,15 @@ async fn call_resolves_on_matching_result() {
     assert_eq!(frame[2], "Heartbeat");
     let message_id = frame[1].as_str().unwrap().to_string();
 
-    let response = HeartbeatResponse {
-        current_time: chrono::Utc::now().to_rfc3339(),
+    let response: HeartbeatResponse = HeartbeatResponse {
+        current_time: OcppTimestamp::parse_rfc3339("2024-01-01T00:00:00Z").unwrap(),
         custom_data: None,
     };
     let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
     peer_sink.send(result_frame).await.unwrap();
 
     let response = call.await.unwrap().unwrap();
-    assert!(!response.current_time.is_empty());
+    assert_eq!(response.current_time.unix_seconds(), 1_704_067_200);
 }
 
 #[tokio::test]
@@ -113,7 +114,7 @@ async fn on_action_answers_a_call_from_the_peer() {
         })
         .await;
 
-    let request = ResetRequest {
+    let request: ResetRequest = ResetRequest {
         custom_data: None,
         r#type: ResetEnum::Immediate,
         evse_id: None,
@@ -138,7 +139,7 @@ async fn call_resolves_security_event_notification_now_that_its_wired_up() {
             .send_security_event_notification(SecurityEventNotificationRequest {
                 custom_data: None,
                 tech_info: None,
-                timestamp: chrono::Utc::now().to_rfc3339(),
+                timestamp: OcppTimestamp::parse_rfc3339("2024-01-01T00:00:00Z").unwrap(),
                 r#type: "MemoryExhaustion".try_into().unwrap(),
             })
             .await
@@ -149,7 +150,8 @@ async fn call_resolves_security_event_notification_now_that_its_wired_up() {
     assert_eq!(frame[2], "SecurityEventNotification");
     let message_id = frame[1].as_str().unwrap().to_string();
 
-    let response = SecurityEventNotificationResponse { custom_data: None };
+    let response: SecurityEventNotificationResponse =
+        SecurityEventNotificationResponse { custom_data: None };
     let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
     peer_sink.send(result_frame).await.unwrap();
 

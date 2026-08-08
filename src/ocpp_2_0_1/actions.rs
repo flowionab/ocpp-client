@@ -3,6 +3,8 @@ use crate::error::ClientError;
 use crate::ocpp_2_0_1::OCPP2_0_1Client;
 use crate::ocpp_2_0_1::error::OCPP2_0_1Error;
 use core::future::Future;
+use core::marker::PhantomData;
+use ocpp_types::v201::common::CustomData;
 use ocpp_types::v201::{
     AuthorizeRequest, AuthorizeResponse, BootNotificationRequest, BootNotificationResponse,
     CancelReservationRequest, CancelReservationResponse, CertificateSignedRequest,
@@ -47,30 +49,60 @@ use ocpp_types::v201::{
     UnlockConnectorRequest, UnlockConnectorResponse, UnpublishFirmwareRequest,
     UnpublishFirmwareResponse, UpdateFirmwareRequest, UpdateFirmwareResponse,
 };
+use serde::Serialize;
+use serde::de::DeserializeOwned;
 
 /// Same pattern as `ocpp_1_6_action!` (see `src/ocpp_1_6/actions.rs`): one marker type
 /// implementing [`Action`] plus `send_x`/`on_x`/`wait_for_x` convenience methods on
 /// [`OCPP2_0_1Client`], generated from one macro line per action.
+///
+/// The one thing 2.x adds is the `customData` extension point. Since `ocpp-types` 0.2.0 every
+/// 2.0.1 message type carries the type of that field as a parameter, so the marker carries it
+/// too and a consumer picks their own shape with `client.call::<Reset<AcmeExtension>>(..)`. The
+/// methods stay concrete at [`CustomData`], the specification's own shape: making them generic
+/// as well would break inference at the call site every time a request is built inline with
+/// `custom_data: None`, since a defaulted type parameter does not participate in inference.
+///
+/// `$req`/`$res` are `ident`s rather than `ty`s because a `ty` fragment cannot be followed by
+/// generic arguments.
 macro_rules! ocpp_2_0_1_action {
-    ($name:ident, $req:ty, $res:ty, $action:literal, $send:ident, $on:ident, $wait_for:ident) => {
+    ($name:ident, $req:ident, $res:ident, $action:literal, $send:ident, $on:ident, $wait_for:ident) => {
         #[doc = concat!("Marker type for the `", $action, "` action.")]
-        pub struct $name;
+        ///
+        /// `C` is the type of the message's `customData` field, defaulting to the
+        /// specification's [`CustomData`]. Name another to read or write a vendor extension
+        /// through [`Client::call`](crate::Client::call)/[`Client::on`](crate::Client::on), or
+        /// [`NoCustomData`](ocpp_types::NoCustomData) to discard it and pay one byte instead of
+        /// the field's full width at every node of the message.
+        pub struct $name<C = CustomData>(PhantomData<fn() -> C>);
 
-        impl Action for $name {
+        // `fn() -> C` rather than a bare `C`: the marker is a type-level tag that is never
+        // instantiated, and this keeps it `Send + Sync` (which `Action` requires of the marker
+        // itself) no matter what `C` is.
+        impl<C> Action for $name<C>
+        where
+            C: Serialize + DeserializeOwned + Send + Sync + 'static,
+        {
             const NAME: &'static str = $action;
-            type Request = $req;
-            type Response = $res;
+            type Request = $req<C>;
+            type Response = $res<C>;
         }
 
         impl OCPP2_0_1Client {
-            pub async fn $send(&self, request: $req) -> Result<$res, ClientError<OCPP2_0_1Error>> {
+            // `$req<CustomData>` spelled out, not bare `$req`: `ocpp-types`' own default for the
+            // parameter is `NoCustomData`, which would silently discard vendor extensions. The
+            // marker's default is this crate's choice and matches.
+            pub async fn $send(
+                &self,
+                request: $req<CustomData>,
+            ) -> Result<$res<CustomData>, ClientError<OCPP2_0_1Error>> {
                 self.call::<$name>(request).await
             }
 
             pub async fn $on<F, FF>(&self, callback: F)
             where
-                F: FnMut($req, Self) -> FF + Send + Sync + 'static,
-                FF: Future<Output = Result<$res, OCPP2_0_1Error>> + Send,
+                F: FnMut($req<CustomData>, Self) -> FF + Send + Sync + 'static,
+                FF: Future<Output = Result<$res<CustomData>, OCPP2_0_1Error>> + Send,
             {
                 self.on::<$name, F, FF>(callback).await
             }
@@ -79,10 +111,10 @@ macro_rules! ocpp_2_0_1_action {
             pub async fn $wait_for<F, FF>(
                 &self,
                 callback: F,
-            ) -> Result<$req, ClientError<OCPP2_0_1Error>>
+            ) -> Result<$req<CustomData>, ClientError<OCPP2_0_1Error>>
             where
-                F: FnMut($req, Self) -> FF + Send + Sync + 'static,
-                FF: Future<Output = Result<$res, OCPP2_0_1Error>> + Send,
+                F: FnMut($req<CustomData>, Self) -> FF + Send + Sync + 'static,
+                FF: Future<Output = Result<$res<CustomData>, OCPP2_0_1Error>> + Send,
             {
                 self.wait_for::<$name, F, FF>(callback).await
             }

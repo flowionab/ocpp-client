@@ -4,6 +4,7 @@
 #![allow(clippy::result_large_err)]
 use futures::{SinkExt, StreamExt};
 use ocpp_client::{NegotiatedClient, OcppVersion, connect};
+use ocpp_types::OcppTimestamp;
 use ocpp_types::v16::HeartbeatRequest as V16HeartbeatRequest;
 use ocpp_types::v201::HeartbeatRequest;
 use serde_json::{Value, json};
@@ -64,7 +65,10 @@ async fn connect_negotiates_whichever_version_the_server_picks() {
         .send_heartbeat(HeartbeatRequest { custom_data: None })
         .await
         .unwrap();
-    assert_eq!(response.current_time, "2024-01-01T00:00:00Z");
+    assert_eq!(
+        response.current_time,
+        OcppTimestamp::parse_rfc3339("2024-01-01T00:00:00Z").unwrap()
+    );
 
     server.await.unwrap();
 }
@@ -119,7 +123,10 @@ async fn connect_only_offers_the_caller_supplied_versions() {
         _ => panic!("expected the server's ocpp1.6 pick, got a different version"),
     };
     let response = client.send_heartbeat(V16HeartbeatRequest {}).await.unwrap();
-    assert_eq!(response.current_time, "2024-01-01T00:00:00Z");
+    assert_eq!(
+        response.current_time,
+        OcppTimestamp::parse_rfc3339("2024-01-01T00:00:00Z").unwrap()
+    );
 
     server.await.unwrap();
 }

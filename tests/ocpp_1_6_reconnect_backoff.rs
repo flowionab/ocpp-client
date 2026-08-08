@@ -13,6 +13,7 @@
 
 use futures::{SinkExt, StreamExt};
 use ocpp_client::{ConnectOptions, ReconnectBehavior, ReconnectPolicy, connect_1_6};
+use ocpp_types::OcppTimestamp;
 use ocpp_types::v16::HeartbeatRequest;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -212,7 +213,10 @@ async fn a_connection_that_carried_traffic_resets_the_backoff() {
     .await
     .expect("should have reached the working connection by now")
     .expect("heartbeat should round-trip");
-    assert_eq!(response.current_time, "2024-01-01T00:00:00Z");
+    assert_eq!(
+        response.current_time,
+        OcppTimestamp::parse_rfc3339("2024-01-01T00:00:00Z").unwrap()
+    );
     let traffic_at = tokio::time::Instant::now();
 
     // The first redial *after* that traffic is the one whose delay we care about.

@@ -8,6 +8,7 @@ use ocpp_client::{
     Client, TokioExecutor, TokioTimer, TransportError, TransportEvent, TransportSink,
     TransportStream,
 };
+use ocpp_types::OcppTimestamp;
 use ocpp_types::v16::{HeartbeatRequest, HeartbeatResponse};
 use serde_json::{Value, json};
 use std::future::Future;
@@ -103,7 +104,7 @@ fn bench_heartbeat_roundtrip(c: &mut Criterion) {
             let message_id = frame[1].as_str().unwrap().to_string();
 
             let response = HeartbeatResponse {
-                current_time: "2026-08-06T00:00:00Z".to_string(),
+                current_time: OcppTimestamp::parse_rfc3339("2026-08-06T00:00:00Z").unwrap(),
             };
             let result_frame = serde_json::to_string(&json!([3, message_id, response])).unwrap();
             peer_sink.send(result_frame).await.unwrap();
@@ -128,7 +129,7 @@ fn bench_envelope_serde(c: &mut Criterion) {
                 3,
                 "abc-123",
                 HeartbeatResponse {
-                    current_time: "2026-08-06T00:00:00Z".to_string(),
+                    current_time: OcppTimestamp::parse_rfc3339("2026-08-06T00:00:00Z").unwrap(),
                 }
             ])
             .to_string()

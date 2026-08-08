@@ -153,3 +153,73 @@ depends on for `rust-ocpp`. Worth re-running the same kind of schema-vs-generate
 (see step 2's collision-detection script, not checked into this repo) before trusting 2.0.1/2.1
 blindly in step 3-4, even though the structural reason for the 1.6 bug (anonymous inline enums)
 doesn't apply to their `$ref`-based schemas.
+
+---
+
+# `ocpp-types` 0.1.3 → 0.2.0 (this crate's 0.4.0)
+
+A second migration, on the same dependency. Four upstream changes, none of which touched the
+engine - `client.rs`, `envelope.rs`, `transport.rs`, `error.rs`, `runtime.rs` and `sync.rs` all
+compiled against 0.2.0 with no edits at all, which is the same result 2.0.1 and 2.1 gave when they
+were ported.
+
+1. **`dateTime` fields became `OcppTimestamp`.** Upstream's reason is size: not one of the 142
+   `dateTime` fields across the three versions declares a `maxLength`, so as unbounded strings
+   they each reserved the generator's 1024-byte default (`v16::HeartbeatResponse` was 1,032 bytes
+   to carry a 24-character instant). The type is 16 bytes, allocator-free and comparable.
+
+   For this crate the consequence is behavioural, not just structural: timestamps are *parsed*
+   now, so a `dateTime` the CSMS writes badly fails the call as `ClientError::Decode` rather than
+   reaching the caller as a bad string, and two timestamps naming the same instant in different
+   UTC offsets compare equal. Fractional seconds (any precision) and non-UTC offsets survive a
+   round trip. All of it is pinned by `tests/ocpp_1_6_timestamps.rs`. Everything else was
+   mechanical: ~30 sites in `tests/`, `benches/` and `examples/` moved from string literals to
+   `OcppTimestamp::parse_rfc3339(..)`.
+
+2. **2.0.1/2.1 message types gained a `customData` type parameter**, defaulting upstream to the
+   new zero-sized `NoCustomData` (which accepts a `customData` object and discards it). Taking
+   that default unchanged would have silently downgraded every 2.x caller's `custom_data`, so the
+   action markers this crate generates carry the parameter themselves -
+   `pub struct Reset<C = CustomData>(PhantomData<fn() -> C>)` - defaulting to the specification's
+   own shape. A deployment with a richer vendor extension names its own type
+   (`client.call::<Reset<AcmeExtension>>(..)`), which was previously only possible by
+   hand-writing an `Action` impl.
+
+   The generated `send_*`/`on_*`/`wait_for_*` methods were deliberately **not** made generic. A
+   generic method breaks inference at every call site that builds a request inline with
+   `custom_data: None` - a defaulted type parameter does not participate in inference - which
+   would have put a turbofish on the common path to serve the rare one. The same inference rule
+   is why a handful of test-side literals now need `let request: ResetRequest = ..`.
+
+   Two mechanical consequences inside the macros: `$req`/`$res` had to become `ident` fragments,
+   since a `ty` fragment cannot be followed by generic arguments; and the marker holds
+   `PhantomData<fn() -> C>` rather than `PhantomData<C>` so it stays `Send + Sync` - which
+   `Action` requires of the marker itself - whatever `C` is.
+
+3. **Eleven new OCPP 1.6 security-whitepaper actions.** `tests/action_coverage.rs` failed the
+   moment the dependency was bumped, listing exactly those eleven, which is what that test was
+   built for. One `ocpp_1_6_action!` line each, plus `tests/ocpp_1_6_security_actions.rs`
+   covering a round trip apiece (`send_*` for the four a charge point initiates, `on_*` for the
+   seven a CSMS initiates). 1.6 went 28 → 39; 2.0.1 and 2.1 were unchanged.
+
+4. **Additive extras.** `alloc` is now upstream's default feature (this crate names its features
+   explicitly, so nothing changed); a new `chrono` feature adds `OcppTimestamp` ↔
+   `chrono::DateTime` conversions, forwarded through this crate's own `chrono` feature; and each
+   version gained a `standard` module of value-set enums for fields the schemas type as bare
+   strings (`SecurityEventNotification.type`, `Variable.name`, 1.6's configuration keys). The
+   `standard` modules need no wiring - they are reachable as
+   `ocpp_client::ocpp_types::v16::standard::*`.
+
+Two smaller shifts show up when reading old code. `v16::common::RequestedMessage` is now
+`TriggerMessageRequestRequestedMessage`, to make room for the `ExtendedTriggerMessage` variant of
+the same idea (variants unchanged). And 48 2.x fields whose length the specification delegates to
+a configuration variable - certificates, chains, CSRs, OCSP results, `MessageContent.content` -
+moved from `heapless::String<N>` to `String`, so their construction drops from
+`try_into().unwrap()` to `into()`. Only one site in this repo was affected, and clippy's
+`unnecessary_fallible_conversions` found it; the compiler catches the reverse direction.
+
+Upstream's remaining `0.2.0` headline - per-field const-generic capacities, and the sizing table
+in its crate docs - does not reach consumers of this crate: those parameters only exist in
+`ocpp-types`' allocation-free shape, and this crate enables `alloc` unconditionally. If that ever
+changes, every message type acquires a second family of parameters and the macros will need the
+same treatment `customData` just got.
