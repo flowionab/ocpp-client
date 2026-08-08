@@ -27,10 +27,11 @@ impl TransportSink for WebSocketSink {
 
     fn ping<'a>(
         &'a mut self,
+        payload: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>> {
         Box::pin(async move {
             self.0
-                .send(Message::Ping(Vec::new().into()))
+                .send(Message::Ping(payload.into()))
                 .await
                 .map_err(boxed)
         })
@@ -38,10 +39,11 @@ impl TransportSink for WebSocketSink {
 
     fn pong<'a>(
         &'a mut self,
+        payload: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>> {
         Box::pin(async move {
             self.0
-                .send(Message::Pong(Vec::new().into()))
+                .send(Message::Pong(payload.into()))
                 .await
                 .map_err(boxed)
         })
@@ -67,8 +69,12 @@ impl TransportStream for WebSocketSource {
                     Some(Ok(Message::Text(text))) => {
                         Ok(Some(TransportEvent::Frame(text.to_string())))
                     }
-                    Some(Ok(Message::Ping(_))) => Ok(Some(TransportEvent::Ping)),
-                    Some(Ok(Message::Pong(_))) => Ok(Some(TransportEvent::Pong)),
+                    Some(Ok(Message::Ping(payload))) => {
+                        Ok(Some(TransportEvent::Ping(payload.into())))
+                    }
+                    Some(Ok(Message::Pong(payload))) => {
+                        Ok(Some(TransportEvent::Pong(payload.into())))
+                    }
                     Some(Ok(Message::Close(_))) => Ok(None),
                     // Binary/frame frames aren't valid OCPP-J; skip and keep reading.
                     Some(Ok(_)) => continue,

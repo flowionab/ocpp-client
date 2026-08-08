@@ -285,14 +285,17 @@ impl TransportSink for EmbassyWsSink {
 
     fn ping<'a>(
         &'a mut self,
+        payload: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>> {
+        // The payload carries `Client`'s correlation token; it has to go out verbatim or the
+        // pong that echoes it back can't be matched to the ping that asked for it.
         Box::pin(AssertSendFuture(async move {
             let len = {
                 let mut ws = self.ws.lock().await;
                 ws.write(
                     WebSocketSendMessageType::Ping,
                     true,
-                    &[],
+                    &payload,
                     &mut self.tx_scratch,
                 )
                 .map_err(boxed_error)?
@@ -307,16 +310,17 @@ impl TransportSink for EmbassyWsSink {
 
     fn pong<'a>(
         &'a mut self,
+        payload: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>> {
-        // Empty-payload pong, matching ocpp-client's own tokio-tungstenite-based transport
-        // (src/transport/websocket.rs) - neither echoes the triggering ping's payload today.
+        // Echoes the triggering ping's payload, as RFC 6455 §5.5.3 requires - `Client`'s read
+        // loop hands it straight through from the `TransportEvent::Ping` it is replying to.
         Box::pin(AssertSendFuture(async move {
             let len = {
                 let mut ws = self.ws.lock().await;
                 ws.write(
                     WebSocketSendMessageType::Pong,
                     true,
-                    &[],
+                    &payload,
                     &mut self.tx_scratch,
                 )
                 .map_err(boxed_error)?
@@ -414,8 +418,18 @@ impl TransportStream for EmbassyWsStream {
                             "ocpp-transport-embassy-net: dropping unexpected binary frame"
                         );
                     }
-                    WebSocketReceiveMessageType::Ping => return Ok(Some(TransportEvent::Ping)),
-                    WebSocketReceiveMessageType::Pong => return Ok(Some(TransportEvent::Pong)),
+                    // Control-frame payloads are capped at 125 bytes by RFC 6455, so these always
+                    // arrive whole in `frame_buf` - no accumulation needed, unlike Text.
+                    WebSocketReceiveMessageType::Ping => {
+                        return Ok(Some(TransportEvent::Ping(
+                            self.frame_buf[..ws_result.len_to].to_vec(),
+                        )));
+                    }
+                    WebSocketReceiveMessageType::Pong => {
+                        return Ok(Some(TransportEvent::Pong(
+                            self.frame_buf[..ws_result.len_to].to_vec(),
+                        )));
+                    }
                     WebSocketReceiveMessageType::CloseMustReply
                     | WebSocketReceiveMessageType::CloseCompleted => {
                         // Simplified close handling: no close-reply frame is sent back (see

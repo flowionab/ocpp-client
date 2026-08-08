@@ -1,4 +1,6 @@
-use crate::reconnect::{ReconnectBehavior, ReconnectPolicy, Reconnector};
+use crate::client::ClientConfig;
+use crate::keepalive::KeepaliveBehavior;
+use crate::reconnect::{ReconnectBehavior, Reconnector};
 use crate::transport::{TransportError, TransportSink, TransportStream};
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
@@ -15,7 +17,7 @@ use url::Url;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct ConnectOptions<'a> {
     pub username: Option<&'a str>,
     pub password: Option<&'a str>,
@@ -52,6 +54,38 @@ pub struct ConnectOptions<'a> {
     /// `ReconnectBehavior::Disabled` still wins - it is an explicit "do not redial", and
     /// supplying a reconnector does not quietly turn reconnect back on.
     pub reconnector: Option<Arc<dyn Reconnector>>,
+    /// Whether the client pings the CSMS on a schedule, and when it gives up on an unresponsive
+    /// one and redials. Defaults to `KeepaliveBehavior::Enabled` with
+    /// `KeepalivePolicy::default()` - a 60-second interval, tolerating one missed pong.
+    ///
+    /// Keepalive is on by default here for the same reason `reconnect` is: without it, a
+    /// half-open connection (a NAT table entry dropped, a mobile link that went away without a
+    /// FIN) is invisible, and the reconnect machinery never gets a chance to fire because the
+    /// read loop is parked in `recv` until the OS TCP timeout. Set `KeepaliveBehavior::Disabled`
+    /// if the CSMS pings the charge point instead, or if the deployment forbids unsolicited
+    /// traffic.
+    ///
+    /// The interval is also readable and writable at runtime via `Client::ping_interval`/
+    /// `Client::set_ping_interval`, which is how `WebSocketPingInterval` gets reported to, and
+    /// updated by, a CSMS.
+    pub keepalive: KeepaliveBehavior,
+}
+
+/// Hand-written rather than derived because `keepalive` defaults to *enabled*, unlike
+/// `KeepaliveBehavior`'s own `Default` - see the field's docs for why the WebSocket convenience
+/// path opts in where the bare `Client` constructors don't.
+impl Default for ConnectOptions<'_> {
+    fn default() -> Self {
+        Self {
+            username: None,
+            password: None,
+            timeout: None,
+            reconnect: ReconnectBehavior::default(),
+            tls_config: None,
+            reconnector: None,
+            keepalive: KeepaliveBehavior::Enabled(crate::keepalive::KeepalivePolicy::default()),
+        }
+    }
 }
 
 impl core::fmt::Debug for ConnectOptions<'_> {
@@ -71,6 +105,7 @@ impl core::fmt::Debug for ConnectOptions<'_> {
                 "reconnector",
                 &self.reconnector.as_ref().map(|_| "<custom>"),
             )
+            .field("keepalive", &self.keepalive)
             .finish()
     }
 }
@@ -191,39 +226,33 @@ pub async fn connect(
         .find(|v| v.protocol() == negotiated)
         .map(|v| v.protocol())
         .ok_or_else(|| format!("Server negotiated unsupported protocol: {negotiated}"))?;
-    let (timeout, reconnector, policy) = prepare(address, protocol, options);
+    let config = prepare(address, protocol, options);
     let (sink, source) = crate::transport::websocket::split(stream);
 
     Ok(match protocol {
         #[cfg(feature = "ocpp_1_6")]
-        "ocpp1.6" => NegotiatedClient::V1_6(crate::Client::from_transport_with_reconnect(
+        "ocpp1.6" => NegotiatedClient::V1_6(crate::Client::from_transport_with_config(
             sink,
             source,
-            timeout,
             Box::new(crate::runtime::tokio::TokioExecutor),
             Box::new(crate::runtime::tokio::TokioTimer),
-            reconnector,
-            policy,
+            config,
         )),
         #[cfg(feature = "ocpp_2_0_1")]
-        "ocpp2.0.1" => NegotiatedClient::V2_0_1(crate::Client::from_transport_with_reconnect(
+        "ocpp2.0.1" => NegotiatedClient::V2_0_1(crate::Client::from_transport_with_config(
             sink,
             source,
-            timeout,
             Box::new(crate::runtime::tokio::TokioExecutor),
             Box::new(crate::runtime::tokio::TokioTimer),
-            reconnector,
-            policy,
+            config,
         )),
         #[cfg(feature = "ocpp_2_1")]
-        "ocpp2.1" => NegotiatedClient::V2_1(crate::Client::from_transport_with_reconnect(
+        "ocpp2.1" => NegotiatedClient::V2_1(crate::Client::from_transport_with_config(
             sink,
             source,
-            timeout,
             Box::new(crate::runtime::tokio::TokioExecutor),
             Box::new(crate::runtime::tokio::TokioTimer),
-            reconnector,
-            policy,
+            config,
         )),
         _ => unreachable!("protocol only ever holds a value returned by OcppVersion::protocol"),
     })
@@ -235,17 +264,15 @@ pub async fn connect_1_6(
     address: &str,
     options: Option<ConnectOptions<'_>>,
 ) -> Result<crate::ocpp_1_6::OCPP1_6Client, Box<dyn std::error::Error + Send + Sync>> {
-    let (timeout, reconnector, policy) = prepare(address, "ocpp1.6", options.clone());
+    let config = prepare(address, "ocpp1.6", options.clone());
     let (stream, _protocol) = setup_socket(address, "ocpp1.6", options).await?;
     let (sink, source) = crate::transport::websocket::split(stream);
-    Ok(crate::Client::from_transport_with_reconnect(
+    Ok(crate::Client::from_transport_with_config(
         sink,
         source,
-        timeout,
         Box::new(crate::runtime::tokio::TokioExecutor),
         Box::new(crate::runtime::tokio::TokioTimer),
-        reconnector,
-        policy,
+        config,
     ))
 }
 
@@ -255,17 +282,15 @@ pub async fn connect_2_0_1(
     address: &str,
     options: Option<ConnectOptions<'_>>,
 ) -> Result<crate::ocpp_2_0_1::OCPP2_0_1Client, Box<dyn std::error::Error + Send + Sync>> {
-    let (timeout, reconnector, policy) = prepare(address, "ocpp2.0.1", options.clone());
+    let config = prepare(address, "ocpp2.0.1", options.clone());
     let (stream, _protocol) = setup_socket(address, "ocpp2.0.1", options).await?;
     let (sink, source) = crate::transport::websocket::split(stream);
-    Ok(crate::Client::from_transport_with_reconnect(
+    Ok(crate::Client::from_transport_with_config(
         sink,
         source,
-        timeout,
         Box::new(crate::runtime::tokio::TokioExecutor),
         Box::new(crate::runtime::tokio::TokioTimer),
-        reconnector,
-        policy,
+        config,
     ))
 }
 
@@ -275,32 +300,39 @@ pub async fn connect_2_1(
     address: &str,
     options: Option<ConnectOptions<'_>>,
 ) -> Result<crate::ocpp_2_1::OCPP2_1Client, Box<dyn std::error::Error + Send + Sync>> {
-    let (timeout, reconnector, policy) = prepare(address, "ocpp2.1", options.clone());
+    let config = prepare(address, "ocpp2.1", options.clone());
     let (stream, _protocol) = setup_socket(address, "ocpp2.1", options).await?;
     let (sink, source) = crate::transport::websocket::split(stream);
-    Ok(crate::Client::from_transport_with_reconnect(
+    Ok(crate::Client::from_transport_with_config(
         sink,
         source,
-        timeout,
         Box::new(crate::runtime::tokio::TokioExecutor),
         Box::new(crate::runtime::tokio::TokioTimer),
-        reconnector,
-        policy,
+        config,
     ))
 }
 
-/// Pulls the timeout/reconnect settings out of `options` and, if reconnect is enabled, builds
-/// the `Reconnector` that redials this same address/protocol/credentials. Shared by all three
-/// `connect_*` entry points.
+/// Turns `options` into the [`ClientConfig`] the `Client` constructor takes and, if reconnect is
+/// enabled, builds the `Reconnector` that redials this same address/protocol/credentials. Shared
+/// by all three `connect_*` entry points and by `connect`.
+///
+/// Note the two different defaults for an absent `options`: `ConnectOptions::default()` is used
+/// for `reconnect`/`keepalive` (both enabled), so passing `None` behaves the same as passing
+/// `Some(Default::default())` rather than silently disabling them.
 fn prepare(
     address: &str,
     protocol: &'static str,
     options: Option<ConnectOptions<'_>>,
-) -> (Duration, Option<Box<dyn Reconnector>>, ReconnectPolicy) {
+) -> ClientConfig {
+    let defaults = ConnectOptions::default();
     let timeout = options
         .as_ref()
         .and_then(|o| o.timeout)
         .unwrap_or(DEFAULT_TIMEOUT);
+    let keepalive = options
+        .as_ref()
+        .map(|o| o.keepalive)
+        .unwrap_or(defaults.keepalive);
     let reconnect = options.as_ref().map(|o| o.reconnect).unwrap_or_default();
     let username = options
         .as_ref()
@@ -314,22 +346,24 @@ fn prepare(
 
     let custom = options.as_ref().and_then(|o| o.reconnector.clone());
 
+    let config = ClientConfig::new(timeout).with_keepalive(keepalive);
+
     match reconnect {
-        ReconnectBehavior::Disabled => (timeout, None, ReconnectPolicy::default()),
+        ReconnectBehavior::Disabled => config,
         ReconnectBehavior::Enabled(policy) if custom.is_some() => {
             let custom = custom.expect("guarded by the match arm");
-            (timeout, Some(Box::new(SharedReconnector(custom))), policy)
+            config.with_reconnect(Box::new(SharedReconnector(custom)), policy)
         }
-        ReconnectBehavior::Enabled(policy) => {
-            let reconnector: Box<dyn Reconnector> = Box::new(WebSocketReconnector {
+        ReconnectBehavior::Enabled(policy) => config.with_reconnect(
+            Box::new(WebSocketReconnector {
                 address: address.to_string(),
                 protocol,
                 username,
                 password,
                 tls_config,
-            });
-            (timeout, Some(reconnector), policy)
-        }
+            }),
+            policy,
+        ),
     }
 }
 
@@ -388,6 +422,10 @@ impl Reconnector for WebSocketReconnector {
                 reconnect: ReconnectBehavior::Disabled,
                 tls_config: self.tls_config.clone(),
                 reconnector: None,
+                // Both this and `reconnect` are inert here: `setup_socket` only reads the
+                // credential/TLS fields, and this path produces bare transport halves for a
+                // client whose keepalive task is already running.
+                keepalive: KeepaliveBehavior::Disabled,
             };
             let (stream, _protocol) =
                 setup_socket(&self.address, self.protocol, Some(options)).await?;

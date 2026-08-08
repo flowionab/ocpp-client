@@ -105,6 +105,7 @@ async fn a_custom_reconnector_redials_an_address_the_client_was_never_given() {
             initial_delay: Duration::from_millis(20),
             max_delay: Duration::from_millis(100),
             multiplier: 2,
+            jitter: false,
         }),
         reconnector: Some(Arc::new(SwitchableReconnector {
             address: target.clone(),

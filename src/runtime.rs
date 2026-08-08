@@ -29,9 +29,43 @@ pub trait Timer: Send + Sync + 'static {
     fn delay<'a>(&'a self, duration: Duration) -> Pin<Box<dyn Future<Output = ()> + Send + 'a>>;
 }
 
-/// Returned by [`with_timeout`] when `duration` elapses before `fut` resolves.
+/// Returned when a timeout elapses before the future it was racing resolves.
+///
+/// Produced by this crate's internal `with_timeout` helper; it is public because it surfaces
+/// through `Client`'s API, not because callers construct it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Elapsed;
+
+/// Returned when a cancellation signal fires before the future it was racing resolves.
+///
+/// Produced by this crate's internal `with_cancel` helper - see [`Elapsed`] for why it is public.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Cancelled;
+
+/// Race `fut` against `cancel`, resolving to whichever finishes first - the same hand-rolled
+/// `poll_fn` shape as [`with_timeout`], but cancelled by another future rather than a timer.
+///
+/// `fut` is polled first, so a future that is already ready wins even if `cancel` is too. When
+/// `cancel` wins, `fut` is dropped mid-poll; every caller is responsible for only passing
+/// futures that tolerate that. The read loop's use of this is why `TransportStream::recv` is
+/// documented as having to be cancel-safe.
+pub(crate) async fn with_cancel<F: Future, C: Future>(
+    fut: F,
+    cancel: C,
+) -> Result<F::Output, Cancelled> {
+    let mut fut = core::pin::pin!(fut);
+    let mut cancel = core::pin::pin!(cancel);
+    core::future::poll_fn(move |cx| {
+        if let Poll::Ready(value) = fut.as_mut().poll(cx) {
+            return Poll::Ready(Ok(value));
+        }
+        if cancel.as_mut().poll(cx).is_ready() {
+            return Poll::Ready(Err(Cancelled));
+        }
+        Poll::Pending
+    })
+    .await
+}
 
 /// Race `fut` against `timer.delay(duration)`, by hand - no `futures::select`/extra
 /// dependency needed, just polling both each wake via `core::future::poll_fn`.

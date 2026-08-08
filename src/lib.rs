@@ -12,6 +12,7 @@ mod action;
 mod client;
 mod envelope;
 mod error;
+mod keepalive;
 mod reconnect;
 pub mod runtime;
 mod sync;
@@ -36,8 +37,9 @@ pub mod ocpp_2_1;
 pub use ocpp_types;
 
 pub use action::Action;
-pub use client::Client;
+pub use client::{Client, ClientConfig};
 pub use error::{ClientError, ProtocolError};
+pub use keepalive::{KeepaliveBehavior, KeepalivePolicy};
 pub use reconnect::{ReconnectBehavior, ReconnectPolicy, Reconnector};
 pub use runtime::{Elapsed, Executor, Timer};
 pub use transport::{TransportError, TransportEvent, TransportSink, TransportStream};
