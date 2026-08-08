@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Lets release.yaml run this exact gate before publishing, instead of keeping a second copy of
+  # these five jobs that could drift from the real one.
+  workflow_call:
 
 env:
   CARGO_TERM_COLOR: always
