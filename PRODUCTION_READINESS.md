@@ -23,7 +23,16 @@ Gaps to close before pointing real hardware/fleets at this crate, in priority or
    `ocpp-charge-point` is for) - but the hook to build that on top of now exists, where before
    there was no reconnect signal at all to hook into. Covered by
    `tests/ocpp_1_6_on_reconnect.rs` (fake-transport test with a custom `Reconnector`, proving
-   the callback fires after a redial and not before).
+   the callback fires after a redial and not before). Where the redial *goes* is also a
+   caller's choice now: `ConnectOptions::reconnector` overrides the built-in
+   fixed-address `Reconnector`, and `websocket_transport(address, version, options)` opens the
+   transport halves such a reconnector must return, so pointing a live connection at a different
+   CSMS address does not mean reimplementing this crate's WebSocket plumbing - or dropping the
+   `Client` and losing every handler, in-flight request and queued message with it. That is what
+   an OCPP 2.x `SetNetworkProfile` switch needs from this layer. Covered by
+   `tests/ocpp_1_6_custom_reconnector.rs` (a real drop on one address, redialled onto a second
+   address the initial connect never saw, plus `ReconnectBehavior::Disabled` still winning over a
+   supplied reconnector).
 
 3. ~~**CI is thin.**~~ **Done.** `.github/workflows/ci.yaml` now runs four parallel jobs on
    push-to-`main` and on every pull request: `fmt` (`cargo fmt --all -- --check`), `clippy`
