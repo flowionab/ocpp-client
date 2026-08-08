@@ -33,12 +33,14 @@ impl TransportSink for FakeSink {
 
     fn ping<'a>(
         &'a mut self,
+        _payload: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>> {
         Box::pin(async move { Ok(()) })
     }
 
     fn pong<'a>(
         &'a mut self,
+        _payload: Vec<u8>,
     ) -> Pin<Box<dyn Future<Output = Result<(), TransportError>> + Send + 'a>> {
         Box::pin(async move { Ok(()) })
     }

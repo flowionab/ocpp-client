@@ -57,6 +57,7 @@ async fn client_reconnects_after_the_connection_drops() {
             initial_delay: Duration::from_millis(20),
             max_delay: Duration::from_millis(100),
             multiplier: 2,
+            jitter: false,
         }),
         ..Default::default()
     };

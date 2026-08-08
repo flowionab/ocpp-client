@@ -72,6 +72,7 @@ async fn on_reconnect_fires_only_after_a_redial() {
             initial_delay: Duration::from_millis(10),
             max_delay: Duration::from_millis(50),
             multiplier: 2,
+            jitter: false,
         },
     );
 
