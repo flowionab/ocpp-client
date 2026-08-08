@@ -42,9 +42,11 @@ jobs:
       - name: Build (default features)
         run: cargo build
       # `--features test` adds the wait_for_* tests (see tests/ocpp_1_6_wait_for.rs) on top of
-      # the default feature set - a plain `cargo test` never runs them.
-      - name: Test (default features + test)
-        run: cargo test --features test
+      # the default feature set - a plain `cargo test` never runs them. `chrono` adds the
+      # interop case in tests/ocpp_1_6_timestamps.rs, which is the only coverage the forwarded
+      # feature has.
+      - name: Test (default features + test + chrono)
+        run: cargo test --features test,chrono
       # Compile-only check for benches/ - catches API breakage in the benchmarks without
       # asserting on timing, which would be flaky on shared CI runners. Run actual benchmarks
       # locally with `cargo bench`.

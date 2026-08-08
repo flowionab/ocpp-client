@@ -54,9 +54,12 @@ The library currently supports **OCPP 1.6J**, **OCPP 2.0.1**, and **OCPP 2.1**.
 
 | Protocol   | Status         | Actions wired up |
 | ---------- | -------------- | ---------------- |
-| OCPP 1.6J  | ✅ Supported    | all 28           |
+| OCPP 1.6J  | ✅ Supported    | all 39           |
 | OCPP 2.0.1 | ✅ Supported    | all 64           |
 | OCPP 2.1   | ✅ Supported    | all 91           |
+
+1.6's 39 includes the eleven actions from the security whitepaper (`SignCertificate`, `GetLog`,
+`SignedUpdateFirmware` and friends), wired up in **0.4.0** when `ocpp-types` first defined them.
 
 Every action defined by [`ocpp-types`](https://crates.io/crates/ocpp-types) for each version has a
 `send_*`/`on_*` method - `tests/action_coverage.rs` fails the build otherwise, so the table can't
@@ -102,6 +105,8 @@ ocpp-client = { version = "0.x", default-features = false }
 ```
 
 This lets the same OCPP communication core compile for resource-constrained devices as well as server-side applications. Embedded users supply their own `Executor`/`Timer` implementations (e.g. backed by `embassy-executor`/`embassy-time`) and a `critical-section` backend for their target.
+
+The optional `chrono` feature adds `From`/`Into` between `ocpp_types::OcppTimestamp` - the type every `dateTime` field uses - and `chrono::DateTime`, for applications that already keep time in chrono. It is interop only; chrono never reaches the wire.
 
 ---
 
@@ -264,6 +269,27 @@ async fn main() {
 
 Use `connect_2_0_1`/`connect_2_1` for those versions, or `connect` to negotiate whichever version
 the server picks.
+
+### Vendor extensions (`customData`)
+
+2.0.1 and 2.1 hang an optional `customData` object on nearly every message. The `send_*`/`on_*`
+methods use the specification's own shape - a bare `vendorId` - which is all most deployments
+need. To carry your own, name the type on the action marker and go through `call`/`on`:
+
+```rust,ignore
+#[derive(serde::Serialize, serde::Deserialize)]
+struct AcmeExtension {
+    #[serde(rename = "vendorId")]
+    vendor_id: String,
+    #[serde(rename = "siteId")]
+    site_id: u32,
+}
+
+let response = client.call::<Reset<AcmeExtension>>(request).await?;
+```
+
+`NoCustomData` is the other end of the trade: it accepts whatever a peer sends and discards it,
+costing one byte per node instead of the field's full width - worth naming on an MCU.
 
 ---
 

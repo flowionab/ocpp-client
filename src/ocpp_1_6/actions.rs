@@ -5,23 +5,31 @@ use crate::ocpp_1_6::error::OCPP1_6Error;
 use core::future::Future;
 use ocpp_types::v16::{
     AuthorizeRequest, AuthorizeResponse, BootNotificationRequest, BootNotificationResponse,
-    CancelReservationRequest, CancelReservationResponse, ChangeAvailabilityRequest,
-    ChangeAvailabilityResponse, ChangeConfigurationRequest, ChangeConfigurationResponse,
-    ClearCacheRequest, ClearCacheResponse, ClearChargingProfileRequest,
-    ClearChargingProfileResponse, DataTransferRequest, DataTransferResponse,
+    CancelReservationRequest, CancelReservationResponse, CertificateSignedRequest,
+    CertificateSignedResponse, ChangeAvailabilityRequest, ChangeAvailabilityResponse,
+    ChangeConfigurationRequest, ChangeConfigurationResponse, ClearCacheRequest, ClearCacheResponse,
+    ClearChargingProfileRequest, ClearChargingProfileResponse, DataTransferRequest,
+    DataTransferResponse, DeleteCertificateRequest, DeleteCertificateResponse,
     DiagnosticsStatusNotificationRequest, DiagnosticsStatusNotificationResponse,
+    ExtendedTriggerMessageRequest, ExtendedTriggerMessageResponse,
     FirmwareStatusNotificationRequest, FirmwareStatusNotificationResponse,
     GetCompositeScheduleRequest, GetCompositeScheduleResponse, GetConfigurationRequest,
     GetConfigurationResponse, GetDiagnosticsRequest, GetDiagnosticsResponse,
-    GetLocalListVersionRequest, GetLocalListVersionResponse, HeartbeatRequest, HeartbeatResponse,
-    MeterValuesRequest, MeterValuesResponse, RemoteStartTransactionRequest,
-    RemoteStartTransactionResponse, RemoteStopTransactionRequest, RemoteStopTransactionResponse,
-    ReserveNowRequest, ReserveNowResponse, ResetRequest, ResetResponse, SendLocalListRequest,
-    SendLocalListResponse, SetChargingProfileRequest, SetChargingProfileResponse,
-    StartTransactionRequest, StartTransactionResponse, StatusNotificationRequest,
-    StatusNotificationResponse, StopTransactionRequest, StopTransactionResponse,
-    TriggerMessageRequest, TriggerMessageResponse, UnlockConnectorRequest, UnlockConnectorResponse,
-    UpdateFirmwareRequest, UpdateFirmwareResponse,
+    GetInstalledCertificateIdsRequest, GetInstalledCertificateIdsResponse,
+    GetLocalListVersionRequest, GetLocalListVersionResponse, GetLogRequest, GetLogResponse,
+    HeartbeatRequest, HeartbeatResponse, InstallCertificateRequest, InstallCertificateResponse,
+    LogStatusNotificationRequest, LogStatusNotificationResponse, MeterValuesRequest,
+    MeterValuesResponse, RemoteStartTransactionRequest, RemoteStartTransactionResponse,
+    RemoteStopTransactionRequest, RemoteStopTransactionResponse, ReserveNowRequest,
+    ReserveNowResponse, ResetRequest, ResetResponse, SecurityEventNotificationRequest,
+    SecurityEventNotificationResponse, SendLocalListRequest, SendLocalListResponse,
+    SetChargingProfileRequest, SetChargingProfileResponse, SignCertificateRequest,
+    SignCertificateResponse, SignedFirmwareStatusNotificationRequest,
+    SignedFirmwareStatusNotificationResponse, SignedUpdateFirmwareRequest,
+    SignedUpdateFirmwareResponse, StartTransactionRequest, StartTransactionResponse,
+    StatusNotificationRequest, StatusNotificationResponse, StopTransactionRequest,
+    StopTransactionResponse, TriggerMessageRequest, TriggerMessageResponse, UnlockConnectorRequest,
+    UnlockConnectorResponse, UpdateFirmwareRequest, UpdateFirmwareResponse,
 };
 
 /// Declares one OCPP 1.6 action: a zero-sized marker type implementing [`Action`], plus
@@ -95,6 +103,15 @@ ocpp_1_6_action!(
     wait_for_cancel_reservation
 );
 ocpp_1_6_action!(
+    CertificateSigned,
+    CertificateSignedRequest,
+    CertificateSignedResponse,
+    "CertificateSigned",
+    send_certificate_signed,
+    on_certificate_signed,
+    wait_for_certificate_signed
+);
+ocpp_1_6_action!(
     ChangeAvailability,
     ChangeAvailabilityRequest,
     ChangeAvailabilityResponse,
@@ -140,6 +157,15 @@ ocpp_1_6_action!(
     wait_for_data_transfer
 );
 ocpp_1_6_action!(
+    DeleteCertificate,
+    DeleteCertificateRequest,
+    DeleteCertificateResponse,
+    "DeleteCertificate",
+    send_delete_certificate,
+    on_delete_certificate,
+    wait_for_delete_certificate
+);
+ocpp_1_6_action!(
     DiagnosticsStatusNotification,
     DiagnosticsStatusNotificationRequest,
     DiagnosticsStatusNotificationResponse,
@@ -147,6 +173,15 @@ ocpp_1_6_action!(
     send_diagnostics_status_notification,
     on_diagnostics_status_notification,
     wait_for_diagnostics_status_notification
+);
+ocpp_1_6_action!(
+    ExtendedTriggerMessage,
+    ExtendedTriggerMessageRequest,
+    ExtendedTriggerMessageResponse,
+    "ExtendedTriggerMessage",
+    send_extended_trigger_message,
+    on_extended_trigger_message,
+    wait_for_extended_trigger_message
 );
 ocpp_1_6_action!(
     FirmwareStatusNotification,
@@ -185,6 +220,15 @@ ocpp_1_6_action!(
     wait_for_get_diagnostics
 );
 ocpp_1_6_action!(
+    GetInstalledCertificateIds,
+    GetInstalledCertificateIdsRequest,
+    GetInstalledCertificateIdsResponse,
+    "GetInstalledCertificateIds",
+    send_get_installed_certificate_ids,
+    on_get_installed_certificate_ids,
+    wait_for_get_installed_certificate_ids
+);
+ocpp_1_6_action!(
     GetLocalListVersion,
     GetLocalListVersionRequest,
     GetLocalListVersionResponse,
@@ -194,6 +238,15 @@ ocpp_1_6_action!(
     wait_for_get_local_list_version
 );
 ocpp_1_6_action!(
+    GetLog,
+    GetLogRequest,
+    GetLogResponse,
+    "GetLog",
+    send_get_log,
+    on_get_log,
+    wait_for_get_log
+);
+ocpp_1_6_action!(
     Heartbeat,
     HeartbeatRequest,
     HeartbeatResponse,
@@ -201,6 +254,24 @@ ocpp_1_6_action!(
     send_heartbeat,
     on_heartbeat,
     wait_for_heartbeat
+);
+ocpp_1_6_action!(
+    InstallCertificate,
+    InstallCertificateRequest,
+    InstallCertificateResponse,
+    "InstallCertificate",
+    send_install_certificate,
+    on_install_certificate,
+    wait_for_install_certificate
+);
+ocpp_1_6_action!(
+    LogStatusNotification,
+    LogStatusNotificationRequest,
+    LogStatusNotificationResponse,
+    "LogStatusNotification",
+    send_log_status_notification,
+    on_log_status_notification,
+    wait_for_log_status_notification
 );
 ocpp_1_6_action!(
     MeterValues,
@@ -248,6 +319,15 @@ ocpp_1_6_action!(
     wait_for_reset
 );
 ocpp_1_6_action!(
+    SecurityEventNotification,
+    SecurityEventNotificationRequest,
+    SecurityEventNotificationResponse,
+    "SecurityEventNotification",
+    send_security_event_notification,
+    on_security_event_notification,
+    wait_for_security_event_notification
+);
+ocpp_1_6_action!(
     SendLocalList,
     SendLocalListRequest,
     SendLocalListResponse,
@@ -264,6 +344,33 @@ ocpp_1_6_action!(
     send_set_charging_profile,
     on_set_charging_profile,
     wait_for_set_charging_profile
+);
+ocpp_1_6_action!(
+    SignCertificate,
+    SignCertificateRequest,
+    SignCertificateResponse,
+    "SignCertificate",
+    send_sign_certificate,
+    on_sign_certificate,
+    wait_for_sign_certificate
+);
+ocpp_1_6_action!(
+    SignedFirmwareStatusNotification,
+    SignedFirmwareStatusNotificationRequest,
+    SignedFirmwareStatusNotificationResponse,
+    "SignedFirmwareStatusNotification",
+    send_signed_firmware_status_notification,
+    on_signed_firmware_status_notification,
+    wait_for_signed_firmware_status_notification
+);
+ocpp_1_6_action!(
+    SignedUpdateFirmware,
+    SignedUpdateFirmwareRequest,
+    SignedUpdateFirmwareResponse,
+    "SignedUpdateFirmware",
+    send_signed_update_firmware,
+    on_signed_update_firmware,
+    wait_for_signed_update_firmware
 );
 ocpp_1_6_action!(
     StartTransaction,

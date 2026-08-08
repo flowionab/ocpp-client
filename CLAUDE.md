@@ -5,22 +5,35 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 ## Project overview
 
 `ocpp-client` implements the **charge point** (client) side of OCPP — the network/protocol layer
-only, not charging logic or hardware control. Current version `0.3.0` (unreleased; 0.2.2 is the
-newest on crates.io). Pre-1.0 and still moving: 0.3.0 alone breaks `TransportSink`/`TransportStream`,
-`ReconnectPolicy`, and `ConnectOptions`' defaults.
+only, not charging logic or hardware control. Current version `0.4.0` (unreleased; 0.3.0 is the
+newest on crates.io). Pre-1.0 and still moving: 0.3.0 broke `TransportSink`/`TransportStream`,
+`ReconnectPolicy` and `ConnectOptions`' defaults, and 0.4.0 breaks every `dateTime` field's type
+and adds a type parameter to the 2.x message types (see below).
 
 **OCPP 1.6, 2.0.1 and 2.1** are all implemented, tested end to end, and in `default` features. Every
-action `ocpp-types` defines is wired up for every version (28 / 64 / 91) — `tests/action_coverage.rs`
-fails the build otherwise. WebSocket is the only production transport; an experimental `embassy-net`
+action `ocpp-types` defines is wired up for every version (39 / 64 / 91) — `tests/action_coverage.rs`
+fails the build otherwise. 1.6's 39 includes the eleven security-whitepaper actions, which arrived
+with `ocpp-types` 0.2.0. WebSocket is the only production transport; an experimental `embassy-net`
 one lives under `crates/` (see the bottom of this file).
 
-Message types come from **`ocpp-types`** (crates.io, `flowionab` org, currently `0.1.3`) — see
-`MIGRATION_OCPP_TYPES.md` for the migration off the old `rust-ocpp` fork. It's `no_std` and
-allocation-free by default; this crate enables its `alloc` feature unconditionally, so
-spec-unbounded fields are plain `String`/`Vec`. Bounded fields (e.g. `IdTag`) stay
-`heapless::String<N>` either way, so construction goes through fallible `TryFrom`. `ocpp-types` has
-no per-version cargo features; this crate's `ocpp_1_6`/`ocpp_2_0_1`/`ocpp_2_1` features only gate its
-own modules.
+Message types come from **`ocpp-types`** (crates.io, `flowionab` org, currently `0.2.0`) — see
+`MIGRATION_OCPP_TYPES.md` for the migration off the old `rust-ocpp` fork and for what 0.2.0
+changed. It's `no_std`, with `alloc` on by default since 0.2.0; this crate enables `alloc`
+unconditionally either way, so spec-unbounded fields are plain `String`/`Vec`. Bounded fields (e.g.
+`IdTag`) stay `heapless::String<N>`, so construction goes through fallible `TryFrom`. Two shapes
+worth knowing before touching a per-version file:
+
+- **`dateTime` fields are `ocpp_types::OcppTimestamp`**, not strings — 16 bytes, comparable, built
+  with `OcppTimestamp::parse_rfc3339`. The client parses them now, so a malformed one from the
+  peer is a `ClientError::Decode`, and equality is by instant, not by written offset.
+  `tests/ocpp_1_6_timestamps.rs` pins that behaviour.
+- **2.0.1/2.1 message types take a `customData` type parameter.** This crate's action markers
+  carry it too (`Reset<AcmeExtension>`), defaulting to the spec's `CustomData`; see
+  `ocpp_2_0_1_action!`'s doc comment for why the generated methods stay concrete.
+
+`ocpp-types` has no per-version cargo features; this crate's `ocpp_1_6`/`ocpp_2_0_1`/`ocpp_2_1`
+features only gate its own modules. The optional `chrono` feature forwards to `ocpp-types`' own,
+adding `OcppTimestamp` ↔ `chrono::DateTime` conversions and nothing else.
 
 ## Architecture
 
@@ -114,7 +127,9 @@ These each cost a real bug once. Read them before touching `client.rs`.
 ### Adding an action
 
 Add one `ocpp_{1_6,2_0_1,2_1}_action!(...)` line in that version's `actions.rs` with the
-`ocpp_types::{v16,v201,v21}` request/response types. **Write the test first.** Nested enum/field
+`ocpp_types::{v16,v201,v21}` request/response types. **Write the test first.** The 2.x macros take
+the request/response as `ident`s, not `ty`s, because they append the `customData` parameter to
+them — pass the bare type name and nothing else. Nested enum/field
 types live under that version's `common` submodule, not the version root. The action name string is
 the struct name minus its `Request`/`Response` suffix; method names are its snake_case (existing
 invocations are the reference for acronym runs — `Get15118EVCertificate` →
@@ -135,16 +150,24 @@ Every behavior has a test in `tests/`. Two styles, mirrored per version:
 Tests needing the `test` feature (`wait_for_*`, bookkeeping) are invisible to a plain `cargo test`;
 run `cargo test --features test`.
 
-Three suites don't fit either style and aren't mirrored per version:
+Some suites don't fit either style and aren't mirrored per version:
 - `tests/action_coverage.rs` — locates the `ocpp-types` source via `cargo metadata`, reads the
   `const ACTION` from each `*_request.rs`, and fails if any action lacks a macro invocation. Guards
-  the gap that shipped in 0.2.0 (five actions with types present but no wrapper). If `ocpp-types`
-  changes its one-file-per-type layout, this is what breaks.
+  the gap that shipped in 0.2.0 (five actions with types present but no wrapper), and is what
+  caught the eleven 1.6 security actions arriving in `ocpp-types` 0.2.0. If `ocpp-types` changes
+  its one-file-per-type layout, this is what breaks.
 - `tests/ocpp_1_6_keepalive.rs` / `_websocket_keepalive.rs` — ping/pong and scheduled keepalive.
   Version-independent, so 1.6 only. Millisecond intervals with generous `timeout(..)` bounds rather
   than a mock clock; the real-socket file exists to prove a real peer echoes ping payloads.
 - `tests/ocpp_1_6_bookkeeping.rs` / `_disconnect.rs` / `_reconnect_backoff.rs` — the invariants
   above. Each case was confirmed to fail against the unfixed code; keep that property.
+- `tests/ocpp_1_6_timestamps.rs` — what a peer may write in a `dateTime` field and what happens
+  when it writes nonsense. Version-independent (the type is shared), so 1.6 only. The `chrono`
+  case is `#[cfg(feature = "chrono")]`, so it needs `cargo test --features test,chrono`.
+- `tests/custom_data_generics.rs` — the 2.x `customData` type parameter, through both `call` and
+  `on`, including that the marker's default keeps the spec shape rather than `NoCustomData`.
+- `tests/ocpp_1_6_security_actions.rs` — one round trip per security-whitepaper action, split by
+  who initiates it. `action_coverage` proves the wiring exists; this proves it works.
 
 ## Common commands
 
@@ -157,18 +180,19 @@ satellite crates under `crates/` need an explicit `-p`. Don't use `--workspace` 
 ```sh
 cargo build                                   # default: std, tokio-runtime, websocket, all three versions
 cargo test --features test                    # all tests, including the test-gated ones
+cargo test --features test,chrono             # adds the chrono-interop case in tests/ocpp_1_6_timestamps.rs
 cargo test <name>                             # single test, substring match
 cargo fmt                                     # rustfmt, per CONTRIBUTING.md
 cargo build --no-default-features --features std,ocpp_1_6      # core + 1.6, no tokio/WebSocket
 cargo build --lib --no-default-features --features ocpp_1_6    # no_std+alloc proof (lib-only, no --target needed)
 ```
 
-MSRV is **1.87** for the library (bound by `heapless` via `ocpp-types`); the test suite needs 1.88
-for dev-dependencies. Verify with `cargo +1.87 check --lib --all-features`.
+MSRV is **1.87** for the library (`ocpp-types` declares the same, and is what binds it); the test
+suite needs 1.88 for dev-dependencies. Verify with `cargo +1.87 check --lib --all-features`.
 
 CI (`.github/workflows/ci.yaml`) runs five jobs on push-to-`main` and every PR: `fmt`, `clippy`
 (`--all-targets --all-features -D warnings`), `test` (`cargo build` then
-`cargo test --features test`), `no_std` (the three lib-only proof builds), and `embedded`
+`cargo test --features test,chrono`), `no_std` (the three lib-only proof builds), and `embedded`
 (checks/clippies `ocpp-transport-embassy-net` and full-links `ocpp-board-stm32h723-nucleo` against
 the real `thumbv7em-none-eabihf` target, with `RUSTFLAGS: --cfg getrandom_backend="custom"`). Keep
 all five green — the `embedded` job in particular catches dead code that host builds don't.

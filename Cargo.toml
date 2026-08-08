@@ -21,7 +21,7 @@ default-members = ["."]
 [package]
 edition = '2024'
 name = "ocpp-client"
-version = "0.3.0"
+version = "0.4.0"
 description = "OCPP Client Implementation. Use this library to implement an OCPP charge point"
 repository = "https://github.com/flowionab/ocpp-client"
 documentation = "https://docs.rs/ocpp-client"
@@ -32,8 +32,8 @@ authors = ["Joatin Granlund <joatin@granlund.io>"]
 keywords = ["ocpp", "charge-point", "ocpp16", "ocpp201", "ocpp21"]
 categories = ["network-programming", "embedded", "no-std"]
 # What a *consumer* needs to build the library. Verified empirically with
-# `cargo +1.87 check --lib --all-features`; the binding constraint is `heapless` 0.9 (via
-# ocpp-types), not this crate's own code. Building the test suite needs 1.88 - the `rcgen`/`time`
+# `cargo +1.87 check --lib --all-features`; the binding constraint is `ocpp-types`, which declares
+# the same 1.87, not this crate's own code. Building the test suite needs 1.88 - the `rcgen`/`time`
 # dev-dependencies and a let-chain in tests/ - but that only affects contributors, not users.
 rust-version = "1.87"
 # Keep editor and CI scaffolding out of the published tarball. `.idea/` was shipping inside the
@@ -54,7 +54,10 @@ default = ["std", "tokio-runtime", "websocket", "ocpp_1_6", "ocpp_2_0_1", "ocpp_
 # global-only dispatch). `ocpp-types` needs no forwarding here - its own `alloc` feature is
 # unconditionally enabled below regardless of this crate's `std` status, since even the
 # no_std+alloc build wants plain `alloc::String`/`Vec` for spec-unbounded fields rather than
-# const-generic-sized `heapless` collections (see MIGRATION_OCPP_TYPES.md). Disable `std` for
+# const-generic-sized `heapless` collections (see MIGRATION_OCPP_TYPES.md). That choice is also
+# what keeps the message types free of const-generic capacity parameters: `ocpp-types` only
+# declares those in its allocation-free shape, so the sole type parameter a consumer of this
+# crate ever sees is 2.x's `customData` one. Disable `std` for
 # no_std + alloc targets (embedded); the engine itself (src/client.rs) has no unconditional
 # std/tokio dependency left - see the `Executor`/`Timer` traits in src/runtime.rs. Embedded
 # users must supply their own `Executor`/`Timer` impls plus a `critical-section` backend for
@@ -71,12 +74,20 @@ websocket = ["tokio-runtime", "dep:tokio-tungstenite", "dep:futures", "dep:url",
 ocpp_1_6 = []
 ocpp_2_0_1 = []
 ocpp_2_1 = []
+# `From`/`Into` between `ocpp_types::OcppTimestamp` - the type every version's `dateTime` fields
+# use since ocpp-types 0.2.0 - and `chrono::DateTime`. Purely additive interop for consumers that
+# already keep time in chrono; nothing in this crate needs it, and chrono never reaches the wire
+# path (its serde support allocates, which the allocation-free build cannot use).
+chrono = ["ocpp-types/chrono"]
 test = []
 
 [dependencies]
-# Strongly typed, no_std+no_alloc-by-default OCPP message types generated from the official
-# JSON schemas - see MIGRATION_OCPP_TYPES.md for why this replaced the rust-ocpp fork.
-ocpp-types = { version = "0.1.3", default-features = false, features = ["serde", "alloc"] }
+# Strongly typed `no_std` OCPP message types generated from the official JSON schemas - see
+# MIGRATION_OCPP_TYPES.md for why this replaced the rust-ocpp fork, and its 0.2.0 section for what
+# that release changed. `default-features = false` is deliberate even though `alloc` is now
+# upstream's default: the features this crate needs are named explicitly so a future default
+# gaining something else doesn't pull it in silently.
+ocpp-types = { version = "0.2.0", default-features = false, features = ["serde", "alloc"] }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
 uuid = { version = "1", default-features = false, features = ["v4"] }

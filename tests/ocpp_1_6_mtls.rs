@@ -11,6 +11,7 @@ use ocpp_client::rustls::pki_types::{CertificateDer, PrivatePkcs8KeyDer};
 use ocpp_client::rustls::server::WebPkiClientVerifier;
 use ocpp_client::rustls::{ClientConfig, RootCertStore, ServerConfig};
 use ocpp_client::{ConnectOptions, connect_1_6};
+use ocpp_types::OcppTimestamp;
 use ocpp_types::v16::HeartbeatRequest;
 use serde_json::{Value, json};
 use std::sync::Arc;
@@ -92,7 +93,10 @@ async fn connects_over_wss_with_mutual_tls_client_certificate() {
         .await
         .unwrap();
     let response = client.send_heartbeat(HeartbeatRequest {}).await.unwrap();
-    assert_eq!(response.current_time, "2024-01-01T00:00:00Z");
+    assert_eq!(
+        response.current_time,
+        OcppTimestamp::parse_rfc3339("2024-01-01T00:00:00Z").unwrap()
+    );
 
     server.await.unwrap();
 }

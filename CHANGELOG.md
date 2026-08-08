@@ -5,6 +5,57 @@ Notable changes per release. Dates are release dates on crates.io.
 This file starts at 0.2.0; earlier releases (0.1.x, a per-version tokio-hardwired design that
 predates the current generic engine) are covered by git history only.
 
+## 0.4.0 - unreleased
+
+Tracks `ocpp-types` 0.2.0. Everything below follows from that release; the engine itself
+(`src/client.rs`, `envelope.rs`, `transport.rs`) needed no changes at all.
+
+### Added
+
+- **The eleven OCPP 1.6 security-whitepaper actions**, which `ocpp-types` 0.2.0 was the first
+  release to define: `CertificateSigned`, `DeleteCertificate`, `ExtendedTriggerMessage`,
+  `GetInstalledCertificateIds`, `GetLog`, `InstallCertificate`, `LogStatusNotification`,
+  `SecurityEventNotification`, `SignCertificate`, `SignedFirmwareStatusNotification` and
+  `SignedUpdateFirmware`. 1.6 now wires up 39 actions rather than 28; 2.0.1 (64) and 2.1 (91) are
+  unchanged. Each gets the usual `send_*`/`on_*`/`wait_for_*` trio, and
+  `tests/ocpp_1_6_security_actions.rs` covers one round trip apiece.
+- **2.x action markers take the `customData` type as a parameter**: `Reset<AcmeExtension>`,
+  `Heartbeat<NoCustomData>`, and so on, defaulting to the specification's `CustomData`. A
+  deployment with a vendor extension richer than a bare `vendorId` can now read and write it
+  through `Client::call`/`Client::on` without hand-writing an `Action` impl. See
+  `tests/custom_data_generics.rs`.
+- **A `chrono` feature**, forwarding to `ocpp-types`' own: `From`/`Into` between `OcppTimestamp`
+  and `chrono::DateTime` for callers that already keep time in chrono. Off by default, and chrono
+  never touches the wire path.
+
+### Changed
+
+- **BREAKING: every `dateTime` field is now `ocpp_types::OcppTimestamp` instead of `String`.**
+  Construct them with `OcppTimestamp::parse_rfc3339(..)` (or `From<chrono::DateTime>` under the
+  new `chrono` feature) and compare against a parsed value rather than a string literal. Beyond
+  the type, this changes behaviour twice over: the client now *validates* what the CSMS sends, so
+  a malformed `dateTime` surfaces as `ClientError::Decode` where it used to be handed through as a
+  string; and the value is an instant, so two timestamps naming the same moment in different UTC
+  offsets compare equal. Fractional seconds and non-UTC offsets both survive the round trip -
+  `tests/ocpp_1_6_timestamps.rs` pins all of it.
+- **BREAKING: 2.0.1 and 2.1 message types carry a `customData` type parameter.** The generated
+  `send_*`/`on_*`/`wait_for_*` methods stay concrete at `CustomData`, so ordinary call sites are
+  unaffected, but a 2.x request or response built in a `let` binding with no expected type now
+  needs an annotation (`let request: ResetRequest = ResetRequest { .. }`) - a defaulted type
+  parameter does not participate in inference. The methods were deliberately left non-generic for
+  exactly this reason; the marker types carry the parameter instead.
+- **BREAKING: `ocpp_types::v16::common::RequestedMessage` is now
+  `TriggerMessageRequestRequestedMessage`**, renamed upstream to make room for
+  `ExtendedTriggerMessageRequestRequestedMessage`. A pure rename, no variants changed.
+- **BREAKING: 48 2.x string fields whose length the specification leaves to a configuration
+  variable are now `String` instead of `heapless::String<N>`** - certificates, certificate
+  chains, CSRs, OCSP results, `MessageContent.content` and the like. Construction drops from
+  `"...".try_into().unwrap()` to `"...".into()`. In the other direction, 89 `dateTime` fields and
+  8 more 2.1 date/time-of-day fields (`TariffConditions.start_time_of_day` and friends) left
+  `String` for `OcppTimestamp`/`OcppDate`/`OcppTimeOfDay`.
+- `ocpp-types` updated to 0.2.0. Its `alloc` feature is now upstream's default; this crate still
+  names its features explicitly, so nothing about the build changes.
+
 ## 0.3.0 - 2026-08-08
 
 ### Added
