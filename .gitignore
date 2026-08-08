@@ -15,3 +15,6 @@ Cargo.lock
 
 .claude/
 .DS_Store
+
+# JetBrains IDE settings - editor state, not project state.
+.idea/

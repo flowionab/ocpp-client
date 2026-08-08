@@ -2,6 +2,12 @@
 
 Gaps to close before pointing real hardware/fleets at this crate, in priority order.
 
+**Scope note.** The core crate over its WebSocket transport has been exercised against a real
+CSMS. The remaining "not run against a real CSMS / real hardware" caveats below and in the
+per-crate READMEs are specifically about the **embedded** satellite crates
+(`ocpp-transport-embassy-net`, `ocpp-board-stm32h723-nucleo`) - don't read them as applying to
+`ocpp-client` itself.
+
 1. ~~**No reconnection logic.**~~ **Done.** `Client<E>`'s background read loop now takes an
    optional `Reconnector` (`src/reconnect.rs`) plus a `ReconnectPolicy` (bounded exponential
    backoff, unlimited attempts) via `Client::from_transport_with_reconnect`. `connect_1_6` /
@@ -61,12 +67,20 @@ Gaps to close before pointing real hardware/fleets at this crate, in priority or
    and `::on_notify_periodic_event_stream_fires_and_never_sends_a_reply`, the latter also
    asserting the client never auto-replies to a received SEND.
 
-5. **Versioning/release.** Crate is `0.2.0-alpha.1`. The git-fork dependency blocker is gone -
-   `ocpp-types` is a real crates.io release (`0.1.1`), not a git dependency, so that specific
-   `cargo publish` obstacle no longer applies. `ocpp-types` itself is early (`0.1.x`, same org as
-   the old `rust-ocpp` fork - see `MIGRATION_OCPP_TYPES.md`'s Risk section for a codegen bug
-   found and fixed upstream mid-migration), so pin it deliberately rather than assuming API
-   stability. API here is still alpha-stability regardless.
+5. **Versioning/release.** Crate is `0.3.0` (unreleased; 0.2.2 is the newest on crates.io). The
+   git-fork dependency blocker is long gone - `ocpp-types` is a real crates.io release (`0.1.3`),
+   not a git dependency. `ocpp-types` itself is still early (`0.1.x`, same org as the old
+   `rust-ocpp` fork - see `MIGRATION_OCPP_TYPES.md`'s Risk section for a codegen bug found and
+   fixed upstream mid-migration), so pin it deliberately rather than assuming API stability. This
+   crate's own API is pre-1.0 and still moving: 0.3.0 alone carries breaking changes to
+   `TransportSink`/`TransportStream`, `ReconnectPolicy`, and `ConnectOptions`' defaults.
+
+   Release metadata was tidied at the same time: `rust-version = "1.87"` (verified with
+   `cargo +1.87 check --lib --all-features`; the binding constraint is `heapless` 0.9 via
+   `ocpp-types`, and building the *test suite* needs 1.88 for dev-dependencies), plus
+   `categories`, `readme`, `documentation`, a `keywords` list that finally mentions 2.1, and an
+   `exclude` that keeps `.idea/`/`.github/` out of the published tarball - `.idea/` had been
+   shipping inside the crate through 0.2.2, and was also purged from git history.
 
 6. ~~**README overclaims embedded transport support.**~~ **Done.** It advertised "STM32-compatible
    transport layer" / "STM32 transport: ✅ Supported," but only the WebSocket transport
@@ -195,3 +209,129 @@ Gaps to close before pointing real hardware/fleets at this crate, in priority or
    itself requires `Send`). Relax the transport bound alone and the default tokio/std build stops
    compiling - fixing it properly means reworking `Executor::spawn`'s `Send` bound too, which is really
    part of the same generic-parameter redesign as the rest of this item, not a separate one.
+
+10. ~~**No client-initiated keepalive, and no `WebSocketPingInterval` to report.**~~ **Done.** The
+    client only ever *replied* to pings the CSMS sent (`Client::send_ping` existed but nothing called
+    it on a schedule), so a half-open connection - a dropped NAT entry, a mobile link gone without a
+    FIN - was undetectable: the read loop stayed parked in `TransportStream::recv` until the OS TCP
+    timeout, and the reconnect machinery from item 1 never got a chance to fire. Downstream consumers
+    also had no interval to report for `OCPPCommCtrlr.WebSocketPingInterval` (2.0.1/2.1) or the 1.6
+    security whitepaper's `WebSocketPingInterval` key, and were hardcoding `0`.
+
+    `src/keepalive.rs` now holds `KeepalivePolicy`/`KeepaliveBehavior` (shaped like item 1's
+    `ReconnectPolicy`/`ReconnectBehavior`), with the loop in `client.rs`. It lives in the engine, not
+    the WebSocket transport, so `ocpp-transport-embassy-net` gets it for free. `ConnectOptions`
+    defaults it to **enabled** at 60s tolerating one missed pong; `ClientConfig::new` (the
+    raw-transport path) defaults to disabled. After `max_missed` unanswered pings the loop calls
+    `Client::force_reconnect`, which the read loop honors only when a reconnector is configured -
+    otherwise dropping the connection would leave a permanently deaf client, strictly worse than an
+    unanswered ping. `Client::ping_interval`/`set_ping_interval` are the non-`async` read/write path
+    for the spec variable, and a write applies immediately instead of after the interval already being
+    waited out.
+
+    Two latent bugs had to be fixed first, both near-unreachable while pings were only ever manual and
+    both routine once a timer sends them: pongs were matched to pings **positionally**, so (a) a ping
+    that timed out left its waiter queued forever and permanently offset every later ping's pong by
+    one - poisoning every subsequent `send_ping` on that client, reachable via reconnect since the
+    waiter table wasn't cleared on redial - and (b) an unsolicited pong (legal per RFC 6455) caused the
+    same desync. Pings now carry an 8-byte correlation token as their payload and only a pong echoing
+    it resolves them, which is why `TransportSink::ping`/`pong` and `TransportEvent::Ping`/`Pong` grew
+    `Vec<u8>` payloads (breaking, for transport implementors only). Racing `recv` against the
+    force-reconnect signal also makes cancel-safety a documented contract on `TransportStream::recv`.
+
+11. ~~**Nothing caught actions whose types existed but were never wired up.**~~ **Done.** Five actions
+    shipped in 0.2.0 with `ocpp-types` request/response types present but no `ocpp_*_action!`
+    invocation, so callers had no way to send or receive them; it surfaced only as a downstream bug
+    report, and was fixed in 0.2.1. Nothing about it was visible at compile time - an unwired type is
+    just an unreferenced one. `tests/action_coverage.rs` now locates the `ocpp-types` source via
+    `cargo metadata`, reads the `const ACTION` string out of each `*_request.rs`, and fails the build
+    naming any action with no matching macro invocation. All three versions are fully covered today
+    (28 / 64 / 91). The repo also gained a `CHANGELOG.md` - it had none, so which release added which
+    action was invisible to anyone not reading git log, which is what let the original report be filed
+    against the wrong version.
+
+12. ~~**`disconnect()` raced the reconnector.**~~ **Done.** Closing the transport looks exactly like
+    a dropped connection from the read loop's side, so with reconnect enabled (the default on
+    `ConnectOptions` since item 1) an explicit `disconnect()` produced an EOF the reconnector
+    redialled - meaning on default options there was no way to stop a client at all. `Client` now
+    carries a sticky `closed` flag that `disconnect()` sets *before* closing the transport, and that
+    outranks every automatic recovery path: the read loop exits rather than redialling (whether it
+    was parked in `recv` or saw the EOF), the keepalive task returns, `set_ping_interval` can't
+    restart it, `force_reconnect()` is a no-op, and further sends fail fast with
+    `ClientError::Closed` - the first construction site that variant has ever had. `LoopExit`
+    (`Eof`/`Forced`/`Shutdown`) is what makes the read loop's three exit paths distinguishable
+    instead of all collapsing into "connection ended, redial". Covered by
+    `tests/ocpp_1_6_disconnect.rs`, whose real-socket case is the one that actually reproduced the
+    race - the in-memory fake's `close()` doesn't end the peer's stream, so the fake never produced
+    the EOF that triggered the redial.
+
+    Racing `recv` against the wake signal is now unconditional (it used to be armed only when a
+    reconnector existed), so `disconnect()` can pull the read loop out of a `recv` that would
+    otherwise park until the OS TCP timeout. That is why `TransportStream::recv`'s cancel-safety
+    contract applies to every transport, not just ones used with reconnect.
+
+13. ~~**Successful-connect-then-immediate-EOF was a hot reconnect loop.**~~ **Done.**
+    `ReconnectPolicy` only delayed *failed* connect attempts, and `attempt` reset to `0` on every
+    success - so a peer that accepts the connection and then closes it immediately (a CSMS rejecting
+    the charge point at the application layer, an overloaded or misconfigured endpoint, a load
+    balancer with no live backend) got redialled with no delay at all, unboundedly. Measured against
+    a local server that completes the WebSocket handshake and drops: **~9,900 connections in 2
+    seconds**, i.e. ~5k/s sustained from a single charge point. A charge point behaving that way
+    against a real CSMS is a self-inflicted DoS, and the fleet-wide version is worse.
+
+    Surfaced while testing item 12 and confirmed independently against the fixed code, so it was
+    neither caused nor fixed by that change.
+
+    The fix keeps "reconnect promptly when the link genuinely comes back" - the behavior worth
+    keeping - by separating *a dial completed* from *a connection works*: `attempt` now lives across
+    connections and is reset only by inbound traffic arriving on one (`attempt = 0` in the read
+    loop's inbound-event arm), never by a dial merely succeeding. The delay also moved to *before*
+    each dial rather than only after a failed one, since the old ordering meant a
+    succeed-then-instantly-drop cycle never waited at all. A connection that carries traffic
+    therefore still costs exactly one `initial_delay` on its next drop, while one that never carries
+    anything escalates to `max_delay`.
+
+    `ReconnectPolicy::jitter` (new, default `true`) spreads each delay uniformly over
+    `[delay / 2, delay]`, because a fleet that all lost the same CSMS previously retried in lockstep
+    and hit it as a thundering herd on recovery. Half the delay stays un-jittered so a randomly tiny
+    value can't defeat the rate bound. Randomness comes from a throwaway v4 UUID - `uuid` is already
+    a dependency for message ids and its RNG already works on `thumbv7em-none-eabihf`, so this
+    needed no new dependency and no new embedded plumbing; the arithmetic is integer-only to avoid
+    a float dependency on no-FPU targets.
+
+    Two knock-on behavior changes, both documented in CHANGELOG.md: the first redial after a drop
+    now waits `initial_delay` (jittered) instead of going out immediately, and `disconnect()` during
+    a backoff no longer has to wait out the remaining delay. Covered by
+    `tests/ocpp_1_6_reconnect_backoff.rs`; three of its four cases fail against the old logic, the
+    fourth being the guard against over-correcting (escalation must not punish a connection that
+    genuinely worked).
+
+14. ~~**Unbounded bookkeeping growth and leaked handler tasks.**~~ **Done.** Three leaks in the same
+    family, all invisible from outside the crate - they show up only as memory growth on a charge
+    point that has been up for weeks:
+
+    - **`pending_responses` leaked on every timed-out request.** `do_send_request` inserted a waiter
+      keyed by message id and only `handle_frame` ever removed one, on an arriving
+      CALLRESULT/CALLERROR. A request that timed out - or that failed to reach the wire at all -
+      left its entry forever. Each request now cleans up after itself on every exit path. This is
+      the identical failure the pong table had (item 10); fixing that one and not this one was an
+      oversight, and both tables are now covered by the same suite so neither regresses alone.
+    - **`Client::on`/`on_notification` leaked a task per re-registration.** Overwriting the map entry
+      made the previous handler unreachable but not finished - it stayed parked forever on a channel
+      nothing could deliver to. `Chan` (`src/sync.rs`) gained `close()`, and the superseded handler
+      is retired: it drains what was already dispatched to it, answers those calls, then exits.
+      Draining before stopping is deliberate - dropping the queue would leave a peer with no reply.
+    - **`wait_for` never unregistered** (`test` feature). The action stayed bound to a reader-less
+      channel, so a later CALL for it was queued and silently forgotten: no CALLRESULT, no CALLERROR,
+      indistinguishable from a hung client. It now removes its registration on the way out, and only
+      when that registration is still its own.
+
+    Covered by `tests/ocpp_1_6_bookkeeping.rs`, using two new `test`-feature accessors
+    (`pending_request_count`, `pending_ping_count`) and a drop-detecting callback to prove a retired
+    task actually ended. Each case was confirmed to fail against the unfixed code.
+
+    Still open in this area, deliberately: `disconnect()` does not fail *in-flight* requests early -
+    they wait out their timeout rather than returning `Closed` immediately. That is latency, not a
+    leak. Doing it properly means either changing what the pending-response channel carries or
+    racing each waiter against a connection-generation signal, and neither is worth the complexity
+    until something needs it.

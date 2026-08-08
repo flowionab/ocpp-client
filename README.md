@@ -24,7 +24,7 @@ The library handles the complexities of establishing and managing OCPP connectio
 
 OCPP message types and protocol definitions are provided by [`ocpp-types`](https://github.com/flowionab/ocpp-types), while OCPP Client focuses on the communication layer required to exchange messages between charge points and Charge Station Management Systems (CSMS).
 
-Designed for both cloud/server environments and resource-constrained embedded systems, OCPP Client supports standard WebSocket connections as well as `no_std` compatible transports for STM32-based platforms.
+Designed for both cloud/server environments and resource-constrained embedded systems, OCPP Client speaks WebSocket out of the box and compiles for `no_std` + `alloc` targets. An `embassy-net`-based transport and an STM32 board scaffold ship alongside it as **experimental** crates - see [Supported Transports](#-supported-transports).
 
 The library currently supports **OCPP 1.6J**, **OCPP 2.0.1**, and **OCPP 2.1**.
 
@@ -39,8 +39,9 @@ The library currently supports **OCPP 1.6J**, **OCPP 2.0.1**, and **OCPP 2.1**.
 * ⚡ OCPP **2.1 support**
 * 🌐 WebSocket transport
 * 🔒 Secure WebSocket (WSS)
-* 🔋 STM32-compatible transport layer
+* 🔋 `embassy-net` transport for embedded targets (experimental)
 * 🔄 Connection lifecycle management
+* 💓 Scheduled WebSocket keepalive with dead-peer detection
 * 📨 Message routing
 * 🧩 Transport abstraction
 * 🪶 Lightweight runtime
@@ -51,21 +52,34 @@ The library currently supports **OCPP 1.6J**, **OCPP 2.0.1**, and **OCPP 2.1**.
 
 ## 🔌 Supported Protocols
 
-| Protocol   | Status         |
-| ---------- | -------------- |
-| OCPP 1.6J  | ✅ Supported    |
-| OCPP 2.0.1 | ✅ Supported    |
-| OCPP 2.1   | ✅ Supported    |
+| Protocol   | Status         | Actions wired up |
+| ---------- | -------------- | ---------------- |
+| OCPP 1.6J  | ✅ Supported    | all 28           |
+| OCPP 2.0.1 | ✅ Supported    | all 64           |
+| OCPP 2.1   | ✅ Supported    | all 91           |
+
+Every action defined by [`ocpp-types`](https://crates.io/crates/ocpp-types) for each version has a
+`send_*`/`on_*` method - `tests/action_coverage.rs` fails the build otherwise, so the table can't
+drift. If a method you expect is missing, check [CHANGELOG.md](CHANGELOG.md) before filing an
+issue: five actions were only wired up in **0.2.1**, so a 0.2.0 build is missing
+`SecurityEventNotification` (2.0.1) and `TriggerMessage`, `SetDisplayMessage`, `GetDERControl`,
+`SetDERControl`, `UpdateDynamicSchedule` (2.1).
 
 ---
 
 ## 🌐 Supported Transports
 
-| Transport              | Status      |
-| ---------------------- | ----------- |
-| WebSocket              | ✅ Supported |
-| Secure WebSocket (WSS) | ✅ Supported |
-| STM32 transport        | ✅ Supported |
+| Transport                                   | Status            |
+| ------------------------------------------- | ----------------- |
+| WebSocket                                    | ✅ Supported       |
+| Secure WebSocket (WSS), incl. mutual TLS     | ✅ Supported       |
+| `embassy-net` (embedded, `no_std` + `alloc`) | 🧪 Experimental   |
+
+The embedded transport (`crates/ocpp-transport-embassy-net`) and the NUCLEO-H723ZG firmware
+scaffold (`crates/ocpp-board-stm32h723-nucleo`) compile and fully link against the real
+`thumbv7em-none-eabihf` target in CI, but **neither has been run against real hardware or a real
+CSMS**, and the embedded transport has no TLS. Treat them as a starting point for a board bring-up
+rather than a supported deployment path. Each crate's README states its exact status.
 
 ---
 
@@ -87,7 +101,7 @@ For embedded targets or `no_std` environments:
 ocpp-client = { version = "0.x", default-features = false }
 ```
 
-This allows the same OCPP communication foundation to run on resource-constrained devices such as STM32 microcontrollers while still supporting traditional server-side applications.
+This lets the same OCPP communication core compile for resource-constrained devices as well as server-side applications. Embedded users supply their own `Executor`/`Timer` implementations (e.g. backed by `embassy-executor`/`embassy-time`) and a `critical-section` backend for their target.
 
 ---
 
@@ -234,18 +248,62 @@ ocpp-client = "0.x"
 ## 🚀 Quick Example
 
 ```rust
-use ocpp_client::Client;
+use ocpp_client::connect_1_6;
+use ocpp_client::ocpp_types::v16::HeartbeatRequest;
 
 #[tokio::main]
 async fn main() {
-    let client = Client::new();
+    // `None` takes the defaults: 5s request timeout, automatic reconnect, and keepalive
+    // pinging every 60s.
+    let client = connect_1_6("wss://example.com/ocpp", None).await.unwrap();
 
-    client
-        .connect("wss://example.com/ocpp")
-        .await
-        .unwrap();
+    let response = client.send_heartbeat(HeartbeatRequest {}).await.unwrap();
+    println!("CSMS time: {}", response.current_time);
 }
 ```
+
+Use `connect_2_0_1`/`connect_2_1` for those versions, or `connect` to negotiate whichever version
+the server picks.
+
+---
+
+## 💓 Keepalive & `WebSocketPingInterval`
+
+By default a client pings the CSMS every 60 seconds and, after two unanswered pings, drops the
+connection and redials. Without this a half-open link - a dropped NAT entry, a mobile connection
+that vanished without a FIN - is undetectable: the socket accepts writes and nothing ever comes
+back, and reconnect can't help because nothing reports the connection as closed.
+
+```rust
+use ocpp_client::{ConnectOptions, KeepaliveBehavior, KeepalivePolicy, connect_1_6};
+use std::time::Duration;
+
+let options = ConnectOptions {
+    keepalive: KeepaliveBehavior::Enabled(KeepalivePolicy {
+        interval: Duration::from_secs(30),
+        timeout: None,          // fall back to the client's request timeout
+        max_missed: 2,
+    }),
+    ..Default::default()
+};
+let client = connect_1_6("wss://example.com/ocpp", Some(options)).await?;
+```
+
+Set `keepalive: KeepaliveBehavior::Disabled` if the CSMS pings the charge point instead, or if the
+deployment forbids unsolicited traffic.
+
+This crate does not implement a device model, but it owns the ping timer, so it exposes the value
+for the layer that does:
+
+| OCPP | Variable / key | Read | Write |
+| ---- | -------------- | ---- | ----- |
+| 2.0.1 / 2.1 | `OCPPCommCtrlr.WebSocketPingInterval` (`GetVariables`/`SetVariables`) | `client.ping_interval()` | `client.set_ping_interval(..)` |
+| 1.6 (security whitepaper) | `WebSocketPingInterval` (`GetConfiguration`/`ChangeConfiguration`) | `client.ping_interval()` | `client.set_ping_interval(..)` |
+
+Both are non-`async`, so a `GetVariables` handler can call them directly. `None` maps to the
+spec's `0` (disabled) in both directions, writes take effect immediately rather than after the
+current interval finishes, and a write can enable pinging on a client that started with keepalive
+disabled.
 
 ---
 
