@@ -5,9 +5,11 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 ## Project overview
 
 `ocpp-client` implements the **charge point** (client) side of OCPP — the network/protocol layer
-only, not charging logic or hardware control. Current version `0.4.0`, the newest on crates.io. Pre-1.0 and still moving: 0.3.0 broke `TransportSink`/`TransportStream`,
-`ReconnectPolicy` and `ConnectOptions`' defaults, and 0.4.0 breaks every `dateTime` field's type
-and adds a type parameter to the 2.x message types (see below).
+only, not charging logic or hardware control. Current version `0.5.0`; 0.4.0 is the newest on
+crates.io. Pre-1.0 and still moving: 0.3.0 broke `TransportSink`/`TransportStream`,
+`ReconnectPolicy` and `ConnectOptions`' defaults, 0.4.0 breaks every `dateTime` field's type
+and adds a type parameter to the 2.x message types (see below), and 0.5.0 breaks only in that it
+moves the public `ocpp-types` dependency from 0.2 to 0.3 (see below).
 
 **OCPP 1.6, 2.0.1 and 2.1** are all implemented, tested end to end, and in `default` features. Every
 action `ocpp-types` defines is wired up for every version (39 / 64 / 91) — `tests/action_coverage.rs`
@@ -15,9 +17,11 @@ fails the build otherwise. 1.6's 39 includes the eleven security-whitepaper acti
 with `ocpp-types` 0.2.0. WebSocket is the only production transport; an experimental `embassy-net`
 one lives under `crates/` (see the bottom of this file).
 
-Message types come from **`ocpp-types`** (crates.io, `flowionab` org, currently `0.2.0`) — see
-`MIGRATION_OCPP_TYPES.md` for the migration off the old `rust-ocpp` fork and for what 0.2.0
-changed. It's `no_std`, with `alloc` on by default since 0.2.0; this crate enables `alloc`
+Message types come from **`ocpp-types`** (crates.io, `flowionab` org, currently `0.3.0`) — see
+`MIGRATION_OCPP_TYPES.md` for the migration off the old `rust-ocpp` fork and for what each bump
+changed. 0.3.0 was purely additive (one opt-in `validate` feature, not enabled here — no type,
+field or action changed shape, and nothing in `src/` needed editing); 0.2.0 is the release that
+reshaped everything below. It's `no_std`, with `alloc` on by default since 0.2.0; this crate enables `alloc`
 unconditionally either way, so spec-unbounded fields are plain `String`/`Vec`. Bounded fields (e.g.
 `IdTag`) stay `heapless::String<N>`, so construction goes through fallible `TryFrom`. Two shapes
 worth knowing before touching a per-version file:
@@ -31,8 +35,19 @@ worth knowing before touching a per-version file:
   `ocpp_2_0_1_action!`'s doc comment for why the generated methods stay concrete.
 
 `ocpp-types` has no per-version cargo features; this crate's `ocpp_1_6`/`ocpp_2_0_1`/`ocpp_2_1`
-features only gate its own modules. The optional `chrono` feature forwards to `ocpp-types`' own,
-adding `OcppTimestamp` ↔ `chrono::DateTime` conversions and nothing else.
+features only gate its own modules. Two optional features forward to `ocpp-types`' own: `chrono`
+adds `OcppTimestamp` ↔ `chrono::DateTime` conversions and nothing else, and `validate` adds the
+`Validate` trait (the spec bounds the types can't carry — `maxLength` on fields too large to
+inline, plus every `minItems`/`minimum`/`maximum`/`multipleOf`) **plus** this crate's
+`From<ValidationError>` for each version's error type.
+
+**Nothing validates automatically, and `Client::call` must not start.** Doing so needs a
+`Validate` bound on `Action::Request`; behind a `#[cfg]` that makes the `Action` trait change
+shape with a feature flag, and since cargo features unify across the graph, one crate enabling
+`validate` would break another's custom `Action` impl — the extension path `src/action.rs`
+advertises. It would also take `ClientError` from 64 to ~304 bytes (`ValidationError` is 296,
+path held inline). Callers write `request.validate()?`. Full reasoning in
+PRODUCTION_READINESS.md item 5; don't relitigate it without reading that first.
 
 ## Architecture
 
@@ -116,8 +131,12 @@ These each cost a real bug once. Read them before touching `client.rs`.
 ### Per-version modules
 
 `src/ocpp_1_6/` is the template:
-- `error.rs` — that version's `ProtocolError` impl, written with one `macro_rules!`
-  (`define_error!`) listing `Variant => "WireCode"` pairs, not hand-written match arms.
+- `error.rs` — that version's error struct and `ProtocolError` impl: a `wire_code` match mapping
+  `RpcErrorCode` to its exact wire spelling, and `from_wire` matching back. (There is no
+  `define_error!` macro; this file claimed one for a while and was wrong.) Under `validate`, also
+  that version's `From<ValidationError>`, which is the one place the versions genuinely differ —
+  1.6 spells it `OccurenceConstraintViolation`, 2.x `Occurrence`. Shared rendering for the
+  description and `errorDetails` lives once in `src/error.rs::validation_error_parts`.
 - `actions.rs` — one `ocpp_1_6_action!(Name, Request, Response, "ActionName", send_x, on_x,
   wait_for_x)` per action, expanding to the marker type plus the three methods. Adding an action is
   one macro line, but callers still get named, autocomplete-friendly methods.
@@ -163,6 +182,11 @@ Some suites don't fit either style and aren't mirrored per version:
 - `tests/ocpp_1_6_timestamps.rs` — what a peer may write in a `dateTime` field and what happens
   when it writes nonsense. Version-independent (the type is shared), so 1.6 only. The `chrono`
   case is `#[cfg(feature = "chrono")]`, so it needs `cargo test --features test,chrono`.
+- `tests/validation_error_mapping.rs` — `From<ValidationError>` for all three error types. The
+  whole file is `#![cfg(feature = "validate")]`, so without `--features validate` it compiles to
+  nothing and reports zero tests rather than failing. Not mirrored per version: the point is the
+  three versions differing. Note 1.6's occurrence case is built by hand — no 1.6 schema states
+  `minItems`, so no generated 1.6 message can produce that class.
 - `tests/custom_data_generics.rs` — the 2.x `customData` type parameter, through both `call` and
   `on`, including that the marker's default keeps the spec shape rather than `NoCustomData`.
 - `tests/ocpp_1_6_security_actions.rs` — one round trip per security-whitepaper action, split by
@@ -179,7 +203,9 @@ satellite crates under `crates/` need an explicit `-p`. Don't use `--workspace` 
 ```sh
 cargo build                                   # default: std, tokio-runtime, websocket, all three versions
 cargo test --features test                    # all tests, including the test-gated ones
-cargo test --features test,chrono             # adds the chrono-interop case in tests/ocpp_1_6_timestamps.rs
+cargo test --features test,chrono,validate    # what CI runs: adds the chrono-interop case in
+                                              # tests/ocpp_1_6_timestamps.rs and all of
+                                              # tests/validation_error_mapping.rs
 cargo test <name>                             # single test, substring match
 cargo fmt                                     # rustfmt, per CONTRIBUTING.md
 cargo build --no-default-features --features std,ocpp_1_6      # core + 1.6, no tokio/WebSocket
@@ -191,7 +217,7 @@ suite needs 1.88 for dev-dependencies. Verify with `cargo +1.87 check --lib --al
 
 CI (`.github/workflows/ci.yaml`) runs five jobs on push-to-`main` and every PR: `fmt`, `clippy`
 (`--all-targets --all-features -D warnings`), `test` (`cargo build` then
-`cargo test --features test,chrono`), `no_std` (the three lib-only proof builds), and `embedded`
+`cargo test --features test,chrono,validate`), `no_std` (the three lib-only proof builds), and `embedded`
 (checks/clippies `ocpp-transport-embassy-net` and full-links `ocpp-board-stm32h723-nucleo` against
 the real `thumbv7em-none-eabihf` target, with `RUSTFLAGS: --cfg getrandom_backend="custom"`). Keep
 all five green — the `embedded` job in particular catches dead code that host builds don't.

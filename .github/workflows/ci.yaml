@@ -44,9 +44,11 @@ jobs:
       # `--features test` adds the wait_for_* tests (see tests/ocpp_1_6_wait_for.rs) on top of
       # the default feature set - a plain `cargo test` never runs them. `chrono` adds the
       # interop case in tests/ocpp_1_6_timestamps.rs, which is the only coverage the forwarded
-      # feature has.
-      - name: Test (default features + test + chrono)
-        run: cargo test --features test,chrono
+      # feature has. `validate` likewise gates all of tests/validation_error_mapping.rs, which
+      # is `#![cfg(feature = "validate")]` in its entirety - without it that file compiles to
+      # nothing and silently reports zero tests.
+      - name: Test (default features + test + chrono + validate)
+        run: cargo test --features test,chrono,validate
       # Compile-only check for benches/ - catches API breakage in the benchmarks without
       # asserting on timing, which would be flaky on shared CI runners. Run actual benchmarks
       # locally with `cargo bench`.
@@ -70,6 +72,12 @@ jobs:
         run: cargo build -p ocpp-client --lib --no-default-features --features ocpp_2_0_1
       - name: no_std+alloc build (ocpp_2_1)
         run: cargo build -p ocpp-client --lib --no-default-features --features ocpp_2_1
+      # `validate` adds code to src/error.rs and each per-version error.rs (the
+      # `From<ValidationError>` impls), which is exactly where std has leaked in before -
+      # `to_string`/`format!`/`write!` all have std-flavoured spellings that compile on the host
+      # and not here. The three builds above never see that code, so prove it separately.
+      - name: no_std+alloc build (all versions + validate)
+        run: cargo build -p ocpp-client --lib --no-default-features --features ocpp_1_6,ocpp_2_0_1,ocpp_2_1,validate
 
   embedded:
     runs-on: ubuntu-latest

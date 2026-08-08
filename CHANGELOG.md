@@ -5,6 +5,45 @@ Notable changes per release. Dates are release dates on crates.io.
 This file starts at 0.2.0; earlier releases (0.1.x, a per-version tokio-hardwired design that
 predates the current generic engine) are covered by git history only.
 
+## 0.5.0 - 2026-08-08
+
+Tracks `ocpp-types` 0.3.0. A dependency-only release: no source file in `src/` changed, and the
+whole test suite passed against the new version unedited.
+
+### Changed
+
+- **BREAKING (dependency): `ocpp-types` updated to 0.3.0.** Upstream's own release is purely
+  additive - no message type, field type or action changed shape, and all 39 / 64 / 91 actions
+  are the same ones - so **no code in this crate needed editing and no call site here does
+  either**. It is called out as breaking only because `ocpp-types` is a *public* dependency
+  (`pub use ocpp_types;`): a consumer that also names `ocpp-types` in its own `Cargo.toml` must
+  move from `0.2` to `0.3` in the same step, or the two copies are distinct types to the
+  compiler. A consumer that reaches the types only through `ocpp_client::ocpp_types::..` - the
+  spelling `src/lib.rs` recommends precisely so this stays a non-event - needs to change nothing.
+
+### Added
+
+- **A `validate` feature**, forwarding `ocpp-types`' own. That adds a `Validate` trait to every
+  message type covering the spec constraints the types cannot carry: `maxLength` on fields too
+  large to inline as a `heapless::String` (certificates, CSRs, OCSP results), plus every
+  `minItems`, `minimum`, `maximum` and `multipleOf` in the schemas. Off by default.
+- **`From<ValidationError>` for `OCPP1_6Error`, `OCPP2_0_1Error` and `OCPP2_1Error`** (same
+  feature). `ocpp-types` classifies a violation as a property- or occurrence-class breach but
+  leaves the wire code to the caller's version, and the versions disagree: OCPP 1.6J's RPC error
+  table spells it `OccurenceConstraintViolation`, missing an `r` that 2.0.1 and 2.1 restored.
+  These impls pick the right one, use upstream's rendering (which names the failing field) as the
+  CALLERROR description, and put the JSON path in `errorDetails` under `"path"` so a peer can
+  match on it without parsing prose. A handler can now reject a bad payload with
+  `request.validate()?` and get the correct code on the wire.
+  See `tests/validation_error_mapping.rs`.
+
+  **Validation is never automatic.** It is deliberately not wired into `Client::call`: that would
+  require a `Validate` bound on `Action::Request`, and a trait bound that appears only when a
+  feature is enabled is not additive - one crate in the graph enabling `validate` would break an
+  unrelated crate's custom `Action` impl, which `src/action.rs` documents as a supported
+  extension point. Callers validate explicitly, which is one line and composes with their own
+  error type. The rationale is recorded in PRODUCTION_READINESS.md item 5.
+
 ## 0.4.0 - 2026-08-08
 
 Tracks `ocpp-types` 0.2.0. Everything below follows from that release; the engine itself

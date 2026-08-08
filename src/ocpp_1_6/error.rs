@@ -77,6 +77,30 @@ impl ProtocolError for OCPP1_6Error {
     }
 }
 
+/// Answer a schema violation with the CALLERROR 1.6J names for it.
+///
+/// Note the spelling: 1.6J's RPC error table really does say `Occurence`, with one `r`, where
+/// 2.0.1 and 2.1 say `Occurrence`. That single-letter split across versions is why this
+/// conversion lives in this crate at all - `ocpp-types` classifies the violation but leaves the
+/// wire code to "the caller's version", and there are three of those.
+#[cfg(feature = "validate")]
+impl From<ocpp_types::validate::ValidationError> for OCPP1_6Error {
+    fn from(error: ocpp_types::validate::ValidationError) -> Self {
+        use ocpp_types::validate::ConstraintClass;
+
+        let code = match error.kind().constraint_class() {
+            ConstraintClass::Property => RpcErrorCode::PropertyConstraintViolation,
+            ConstraintClass::Occurrence => RpcErrorCode::OccurenceConstraintViolation,
+        };
+        let (description, details) = crate::error::validation_error_parts(&error);
+        OCPP1_6Error {
+            code,
+            description,
+            details,
+        }
+    }
+}
+
 impl fmt::Display for OCPP1_6Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}: {}", self.code(), self.description())

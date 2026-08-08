@@ -67,16 +67,53 @@ per-crate READMEs are specifically about the **embedded** satellite crates
    and `::on_notify_periodic_event_stream_fires_and_never_sends_a_reply`, the latter also
    asserting the client never auto-replies to a received SEND.
 
-5. **Versioning/release.** Crate is `0.4.0`, the newest on crates.io. The
-   git-fork dependency blocker is long gone - `ocpp-types` is a real crates.io release (`0.2.0`),
-   not a git dependency. `ocpp-types` itself is still early (`0.2.x`, same org as the old
+5. **Versioning/release.** Crate is `0.5.0`; `0.4.0` is the newest on crates.io. The
+   git-fork dependency blocker is long gone - `ocpp-types` is a real crates.io release (`0.3.0`),
+   not a git dependency. `ocpp-types` itself is still early (`0.3.x`, same org as the old
    `rust-ocpp` fork - see `MIGRATION_OCPP_TYPES.md`'s Risk section for a codegen bug found and
    fixed upstream mid-migration), so pin it deliberately rather than assuming API stability - its
-   0.2.0 was itself a breaking release, and the section at the bottom of that file records what it
-   cost here. This crate's own API is pre-1.0 and still moving: 0.3.0 carried breaking changes to
-   `TransportSink`/`TransportStream`, `ReconnectPolicy` and `ConnectOptions`' defaults, and 0.4.0
-   changes every `dateTime` field's type and adds a `customData` type parameter to the 2.x
-   markers.
+   0.2.0 was itself a breaking release, and the sections at the bottom of that file record what
+   each bump cost here. 0.3.0 cost nothing: purely additive upstream, so this crate's 0.5.0 is a
+   dependency bump with no source change. This crate's own API is pre-1.0 and still moving: 0.3.0
+   carried breaking changes to `TransportSink`/`TransportStream`, `ReconnectPolicy` and
+   `ConnectOptions`' defaults, and 0.4.0 changes every `dateTime` field's type and adds a
+   `customData` type parameter to the 2.x markers. 0.5.0 breaks nothing in this crate's own API -
+   it is a minor bump only because `ocpp-types` is re-exported (`pub use ocpp_types;`), so a
+   consumer naming that crate directly has to move 0.2 → 0.3 alongside it.
+
+   **Settled in 0.5.0:** `ocpp-types` 0.3.0's `validate` feature is forwarded under the same
+   name, off by default, and each version's error type gained `From<ValidationError>`.
+
+   Validation is **not** wired into `Client::call`, and that is the decision worth recording
+   rather than the feature itself. Three reasons, in order of weight:
+
+   1. **The bound is not additive.** `Client::call` can only validate if `A::Request` carries a
+      `Validate` bound. Unconditionally, that forces the feature on for everyone and makes
+      `Validate` mandatory for every custom `Action`. Behind `#[cfg(feature = "validate")]`, the
+      `Action` trait changes shape with a feature flag - and because cargo features unify across
+      the whole graph, one crate enabling it would break an unrelated crate's custom `Action`
+      impl, which that crate's author could only fix by implementing a trait they never asked
+      for. `src/action.rs` advertises `Action` as open to consumers, so this taxes the documented
+      extension path to serve the built-in one.
+   2. **`ClientError` would grow 64 → ~304 bytes.** `ValidationError` is 296 bytes: it holds a
+      16-segment path inline, by design, because a path that names the field is the whole point.
+      Every `Result<Response, ClientError<E>>` in the public API would carry that, and clippy's
+      `result_large_err` would fire across the surface. (Both figures measured, not estimated.)
+   3. **The payoff is asymmetric.** A charge point mostly *builds* messages, from bounded fields
+      the types already make unrepresentable. What `validate` adds outbound is over-long
+      unbounded strings, empty arrays and out-of-range integers - mostly caller bugs that surface
+      in development. Upstream's own docs aim the feature at whoever receives untrusted payloads,
+      which is the CSMS.
+
+   A caller who wants it writes `request.validate()?` before `client.call(..)`: one line, no cost
+   to anyone else, and it composes with their own error type. Recursive validation with 296-byte
+   stack frames is also not something to do unasked on a Cortex-M.
+
+   **Open, small:** `src/client.rs`'s `on` answers *any* undecodable inbound payload with
+   `not_implemented`, which is the wrong wire code - `FormationViolation` or
+   `TypeConstraintViolation` fits a payload that failed to deserialize. Unrelated to `validate`
+   (that path is a serde failure, not a constraint breach), but adjacent, and now that the
+   constraint-violation codes are reachable the gap is more visible.
 
    Release metadata was tidied at the same time: `rust-version = "1.87"` (verified with
    `cargo +1.87 check --lib --all-features`; the binding constraint is `ocpp-types`, which

@@ -108,6 +108,57 @@ This lets the same OCPP communication core compile for resource-constrained devi
 
 The optional `chrono` feature adds `From`/`Into` between `ocpp_types::OcppTimestamp` - the type every `dateTime` field uses - and `chrono::DateTime`, for applications that already keep time in chrono. It is interop only; chrono never reaches the wire.
 
+The optional `validate` feature adds spec-conformance checking - see below.
+
+---
+
+## ✅ Validating payloads (`validate`)
+
+Most of the specification's limits are in the types, so a violation cannot be built: a field the
+schema bounds at `maxLength: 20` is a `heapless::String<20>`. Two categories escape that - bounds
+too large to store inline (certificates, CSRs, OCSP results, which are growable `String`s), and
+`minItems`/`minimum`/`maximum`/`multipleOf`, which no collection or integer type expresses at all.
+
+The `validate` feature covers exactly those:
+
+```toml
+[dependencies]
+ocpp-client = { version = "0.x", features = ["validate"] }
+```
+
+**Nothing calls it for you.** Validation is not wired into `Client::call`, deliberately: it would
+need a `Validate` bound on `Action::Request`, and a trait bound that appears only when a feature is
+enabled is not additive - one crate in your dependency graph turning it on would break an unrelated
+crate's custom `Action` implementation. So you validate where you want it, which is one line:
+
+```rust,ignore
+use ocpp_client::ocpp_types::validate::Validate;
+
+request.validate()?;                       // names the offending field, before it hits the wire
+let response = client.call::<Reset>(request).await?;
+```
+
+The payoff is sharper on the receiving side. A schema violation the peer catches comes back as a
+`CALLERROR` you cannot correlate to any field; validating locally gives you the JSON path. And
+because a `ValidationError` converts straight into your version's error type, a handler can reject
+a bad payload with the correct wire code:
+
+```rust,ignore
+client.on_clear_variable_monitoring(|request, _client| async move {
+    request.validate()?;                   // -> Occurrence/PropertyConstraintViolation
+    Ok(handle(request))
+}).await;
+```
+
+That conversion is why the feature exists here rather than only upstream: `ocpp-types` classifies a
+violation but leaves the wire code to "your version", and the versions disagree - OCPP 1.6J spells
+it `OccurenceConstraintViolation`, with one `r`, where 2.0.1 and 2.1 spell it `Occurrence`. The
+`From<ValidationError>` impls on `OCPP1_6Error`/`OCPP2_0_1Error`/`OCPP2_1Error` get that right, and
+put the JSON path in `errorDetails` so a peer can match on it without parsing prose.
+
+Out of scope, because the schemas do not state them: cross-field rules from the specification's
+prose, your own `customData` payload, and 2.x's deliberately untyped `DataTransfer.data`.
+
 ---
 
 ## 🏗️ Architecture

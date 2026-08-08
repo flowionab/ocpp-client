@@ -223,3 +223,51 @@ in its crate docs - does not reach consumers of this crate: those parameters onl
 `ocpp-types`' allocation-free shape, and this crate enables `alloc` unconditionally. If that ever
 changes, every message type acquires a second family of parameters and the macros will need the
 same treatment `customData` just got.
+
+---
+
+# `ocpp-types` 0.2.0 → 0.3.0 (this crate's 0.5.0)
+
+A non-event, and worth recording as one. Upstream 0.3.0 is **purely additive**: a `diff -ru` of
+the two `src/` trees has no removed line anywhere, the action counts are identical (39 / 64 / 91),
+and no message type, field type or enum variant changed shape. `cargo build` and the full
+`cargo test --features test,chrono` suite both passed against it with **zero edits to `src/`,
+`tests/`, `benches/` or `examples/`** - the first time a bump on this dependency has cost nothing
+at all. The only source change in this repo is the version string in `Cargo.toml`.
+
+The one addition is an opt-in **`validate` feature**: a `Validate` trait implemented for every
+message type, covering the spec constraints the type system cannot carry. Those are the
+`maxLength`s on fields too large to inline as a `heapless::String` (which are a plain `String`
+under `alloc` - exactly the 48 fields 0.2.0 relaxed, plus the rest), and every `minItems`,
+`minimum`, `maximum` and `multipleOf` in the schemas, none of which a collection or integer type
+expresses at all. Errors carry the JSON path to the failing value (`ValidationError::in_field`
+builds it up as the check unwinds), so a rejection names the field.
+
+**This crate forwards it, off by default, and adds the one piece upstream deliberately left to
+this layer.** `ValidationErrorKind::constraint_class` classifies a violation as property- or
+occurrence-class, but stops there: upstream's doc says the caller picks the code "from their
+version's `RpcErrorCode`", and there are three of those. They disagree by one letter - 1.6J's
+table really does read `OccurenceConstraintViolation`, which 2.0.1 and 2.1 corrected to
+`Occurrence`. This crate owns all three error enums, so `From<ValidationError>` for
+`OCPP1_6Error`/`OCPP2_0_1Error`/`OCPP2_1Error` is the natural home for that mapping; every
+consumer would otherwise rediscover the typo. The impls also fill `errorDetails` with the JSON
+path alone (`{"path": "id[0]"}`), separately from the sentence in `description`, so a peer can
+match on it mechanically. `tests/validation_error_mapping.rs` covers all three versions,
+including a fake-transport case proving a handler's `request.validate()?` reaches the wire as the
+right code.
+
+**What was *not* done is validate automatically inside `Client::call`.** The blocker is
+structural rather than a matter of taste: `A::Request` would need a `Validate` bound, and putting
+one behind `#[cfg(feature = "validate")]` makes the `Action` trait change shape with a feature
+flag. Cargo features unify across the whole dependency graph, so one crate enabling `validate`
+would break an unrelated crate's custom `Action` impl - and `src/action.rs` documents that trait
+as open to consumers, so the cost lands squarely on the extension path. Two supporting reasons:
+`ClientError` would grow from 64 to ~304 bytes (a `ValidationError` is 296, holding its path
+inline), and the outbound payoff is thin, since a station builds messages from bounded fields the
+types already make unrepresentable. Callers write `request.validate()?` where they want it. The
+full argument is PRODUCTION_READINESS.md item 5.
+
+One incidental finding worth keeping: **no 1.6 schema states `minItems` at all**, so no generated
+1.6 message can produce an occurrence-class violation. The 1.6 mapping still has to be right -
+a consumer validating a custom `Action` payload can raise one - which is why that test builds the
+error by hand rather than from a payload.

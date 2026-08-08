@@ -21,7 +21,7 @@ default-members = ["."]
 [package]
 edition = '2024'
 name = "ocpp-client"
-version = "0.4.0"
+version = "0.5.0"
 description = "OCPP Client Implementation. Use this library to implement an OCPP charge point"
 repository = "https://github.com/flowionab/ocpp-client"
 documentation = "https://docs.rs/ocpp-client"
@@ -79,15 +79,32 @@ ocpp_2_1 = []
 # already keep time in chrono; nothing in this crate needs it, and chrono never reaches the wire
 # path (its serde support allocates, which the allocation-free build cannot use).
 chrono = ["ocpp-types/chrono"]
+# Forwards `ocpp-types`' own `validate`, which adds a `Validate` trait to every message type
+# covering the spec constraints the types cannot carry: `maxLength` on fields too large to inline
+# as a `heapless::String`, plus every `minItems`/`minimum`/`maximum`/`multipleOf`. On top of that
+# it adds `From<ValidationError>` for each version's CALLERROR type.
+#
+# Nothing in this crate calls `Validate::validate` for you. Validation is not wired into
+# `Client::call`, and deliberately so: `Action::Request` would need a `Validate` bound, and a
+# bound that appears only when a feature is on is not additive - one crate in the graph enabling
+# it would break an unrelated crate's custom `Action` impl (see src/action.rs, which documents
+# that trait as open to consumers). Callers validate explicitly, which is one line and composes
+# with their own error type. See PRODUCTION_READINESS.md item 5.
+validate = ["ocpp-types/validate"]
 test = []
 
 [dependencies]
 # Strongly typed `no_std` OCPP message types generated from the official JSON schemas - see
-# MIGRATION_OCPP_TYPES.md for why this replaced the rust-ocpp fork, and its 0.2.0 section for what
-# that release changed. `default-features = false` is deliberate even though `alloc` is now
-# upstream's default: the features this crate needs are named explicitly so a future default
-# gaining something else doesn't pull it in silently.
-ocpp-types = { version = "0.2.0", default-features = false, features = ["serde", "alloc"] }
+# MIGRATION_OCPP_TYPES.md for why this replaced the rust-ocpp fork, and its per-release sections
+# at the bottom for what each bump changed. `default-features = false` is deliberate even though
+# `alloc` is now upstream's default: the features this crate needs are named explicitly so a
+# future default gaining something else doesn't pull it in silently.
+#
+# 0.3.0 added an opt-in `validate` feature (spec bounds the type system can't carry -
+# `maxLength` on fields too large to inline, plus every `minItems`/`minimum`/`maximum`/
+# `multipleOf`). This crate forwards it under the same name, off by default; see the `validate`
+# entry in [features] above for why nothing calls it automatically.
+ocpp-types = { version = "0.3.0", default-features = false, features = ["serde", "alloc"] }
 serde = { version = "1", default-features = false, features = ["derive", "alloc"] }
 serde_json = { version = "1", default-features = false, features = ["alloc"] }
 uuid = { version = "1", default-features = false, features = ["v4"] }
