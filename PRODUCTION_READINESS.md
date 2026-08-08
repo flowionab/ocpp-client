@@ -67,7 +67,7 @@ per-crate READMEs are specifically about the **embedded** satellite crates
    and `::on_notify_periodic_event_stream_fires_and_never_sends_a_reply`, the latter also
    asserting the client never auto-replies to a received SEND.
 
-5. **Versioning/release.** Crate is `0.4.0` (unreleased; 0.3.0 is the newest on crates.io). The
+5. **Versioning/release.** Crate is `0.4.0`, the newest on crates.io. The
    git-fork dependency blocker is long gone - `ocpp-types` is a real crates.io release (`0.2.0`),
    not a git dependency. `ocpp-types` itself is still early (`0.2.x`, same org as the old
    `rust-ocpp` fork - see `MIGRATION_OCPP_TYPES.md`'s Risk section for a codegen bug found and
