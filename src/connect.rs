@@ -15,7 +15,7 @@ use url::Url;
 
 const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 
-#[derive(Debug, Clone, Default)]
+#[derive(Clone, Default)]
 pub struct ConnectOptions<'a> {
     pub username: Option<&'a str>,
     pub password: Option<&'a str>,
@@ -33,6 +33,80 @@ pub struct ConnectOptions<'a> {
     /// against, so the `ClientConfig` you build is guaranteed compatible. Reconnect attempts
     /// (see `reconnect` above) reuse the same config.
     pub tls_config: Option<Arc<rustls::ClientConfig>>,
+    /// Decides where a dropped connection is redialled. `None` (the default) redials the same
+    /// address, protocol, credentials and TLS config the connection started with, which is what
+    /// almost every caller wants.
+    ///
+    /// Supply one to make the redial target something other than a constant - the case this
+    /// exists for is a charge point that must move to a different CSMS address (an OCPP 2.x
+    /// network connection profile, a failover endpoint) **without tearing down its `Client`**.
+    /// Reconnecting through the same `Client` keeps its identity, so every registered handler,
+    /// every in-flight request and every queued message survives the move; dropping the client
+    /// and calling `connect_*` again does not.
+    ///
+    /// Implementations usually delegate to [`websocket_transport`] rather than building a
+    /// transport by hand - see its docs for a worked reconnector. A custom reconnector is fully
+    /// responsible for the redial: `address` and the credential/TLS fields above apply to the
+    /// *initial* connection only and are not consulted when it runs.
+    ///
+    /// `ReconnectBehavior::Disabled` still wins - it is an explicit "do not redial", and
+    /// supplying a reconnector does not quietly turn reconnect back on.
+    pub reconnector: Option<Arc<dyn Reconnector>>,
+}
+
+impl core::fmt::Debug for ConnectOptions<'_> {
+    /// Redacts `password`: these options are routinely logged wholesale when a connection fails,
+    /// and a CSMS credential in a log file outlives the debugging session that produced it.
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        f.debug_struct("ConnectOptions")
+            .field("username", &self.username)
+            .field(
+                "password",
+                &self.password.map(|_| "<redacted>").unwrap_or("None"),
+            )
+            .field("timeout", &self.timeout)
+            .field("reconnect", &self.reconnect)
+            .field("tls_config", &self.tls_config.as_ref().map(|_| "<set>"))
+            .field(
+                "reconnector",
+                &self.reconnector.as_ref().map(|_| "<custom>"),
+            )
+            .finish()
+    }
+}
+
+/// Opens one WebSocket connection to `address` speaking `version`, and hands back the transport
+/// halves a [`Reconnector`] is required to return - so a custom reconnector can redial without
+/// reimplementing this crate's WebSocket plumbing.
+///
+/// `options` covers credentials and TLS for this dial; its `reconnect`/`reconnector` fields are
+/// ignored, since this opens a bare transport rather than a `Client`. `version` must be the one
+/// already negotiated on the connection being replaced - the client's handlers are bound to that
+/// version, so redialling a different one would leave it speaking the wrong protocol.
+///
+/// ```no_run
+/// # use std::sync::{Arc, Mutex};
+/// # use std::{future::Future, pin::Pin};
+/// # use ocpp_client::{OcppVersion, Reconnector, TransportError, TransportSink, TransportStream, websocket_transport};
+/// /// Redials whatever address it is currently pointed at.
+/// struct SwitchableReconnector(Arc<Mutex<String>>);
+///
+/// impl Reconnector for SwitchableReconnector {
+///     fn connect<'a>(&'a self) -> Pin<Box<dyn Future<Output = Result<(Box<dyn TransportSink>, Box<dyn TransportStream>), TransportError>> + Send + 'a>> {
+///         Box::pin(async move {
+///             let address = self.0.lock().unwrap().clone();
+///             websocket_transport(&address, OcppVersion::V1_6, None).await
+///         })
+///     }
+/// }
+/// ```
+pub async fn websocket_transport(
+    address: &str,
+    version: OcppVersion,
+    options: Option<ConnectOptions<'_>>,
+) -> Result<(Box<dyn TransportSink>, Box<dyn TransportStream>), TransportError> {
+    let (stream, _protocol) = setup_socket(address, version.protocol(), options).await?;
+    Ok(crate::transport::websocket::split(stream))
 }
 
 /// A `Client` for whichever OCPP version the server actually picked when connecting via
@@ -238,8 +312,14 @@ fn prepare(
         .map(str::to_string);
     let tls_config = options.as_ref().and_then(|o| o.tls_config.clone());
 
+    let custom = options.as_ref().and_then(|o| o.reconnector.clone());
+
     match reconnect {
         ReconnectBehavior::Disabled => (timeout, None, ReconnectPolicy::default()),
+        ReconnectBehavior::Enabled(policy) if custom.is_some() => {
+            let custom = custom.expect("guarded by the match arm");
+            (timeout, Some(Box::new(SharedReconnector(custom))), policy)
+        }
         ReconnectBehavior::Enabled(policy) => {
             let reconnector: Box<dyn Reconnector> = Box::new(WebSocketReconnector {
                 address: address.to_string(),
@@ -250,6 +330,29 @@ fn prepare(
             });
             (timeout, Some(reconnector), policy)
         }
+    }
+}
+
+/// Adapts the `Arc<dyn Reconnector>` callers hand us in [`ConnectOptions::reconnector`] to the
+/// `Box<dyn Reconnector>` `Client` takes. `Arc` is what keeps `ConnectOptions` cloneable, which
+/// the `connect_*` functions rely on.
+struct SharedReconnector(Arc<dyn Reconnector>);
+
+impl Reconnector for SharedReconnector {
+    fn connect<'a>(
+        &'a self,
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        (Box<dyn TransportSink>, Box<dyn TransportStream>),
+                        TransportError,
+                    >,
+                > + Send
+                + 'a,
+        >,
+    > {
+        self.0.connect()
     }
 }
 
@@ -284,6 +387,7 @@ impl Reconnector for WebSocketReconnector {
                 timeout: None,
                 reconnect: ReconnectBehavior::Disabled,
                 tls_config: self.tls_config.clone(),
+                reconnector: None,
             };
             let (stream, _protocol) =
                 setup_socket(&self.address, self.protocol, Some(options)).await?;
