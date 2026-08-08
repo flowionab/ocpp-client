@@ -5,8 +5,7 @@ Guidance for Claude Code (claude.ai/code) working in this repository.
 ## Project overview
 
 `ocpp-client` implements the **charge point** (client) side of OCPP — the network/protocol layer
-only, not charging logic or hardware control. Current version `0.4.0` (unreleased; 0.3.0 is the
-newest on crates.io). Pre-1.0 and still moving: 0.3.0 broke `TransportSink`/`TransportStream`,
+only, not charging logic or hardware control. Current version `0.4.0`, the newest on crates.io. Pre-1.0 and still moving: 0.3.0 broke `TransportSink`/`TransportStream`,
 `ReconnectPolicy` and `ConnectOptions`' defaults, and 0.4.0 breaks every `dateTime` field's type
 and adds a type parameter to the 2.x message types (see below).
 

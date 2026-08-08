@@ -5,7 +5,7 @@ Notable changes per release. Dates are release dates on crates.io.
 This file starts at 0.2.0; earlier releases (0.1.x, a per-version tokio-hardwired design that
 predates the current generic engine) are covered by git history only.
 
-## 0.4.0 - unreleased
+## 0.4.0 - 2026-08-08
 
 Tracks `ocpp-types` 0.2.0. Everything below follows from that release; the engine itself
 (`src/client.rs`, `envelope.rs`, `transport.rs`) needed no changes at all.
