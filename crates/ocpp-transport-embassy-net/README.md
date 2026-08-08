@@ -39,8 +39,13 @@ solid starting point to iterate on with a real server, not a finished implementa
   transport effectively relies on tungstenite to paper over. Most peers tear down the TCP
   connection shortly after sending Close regardless, so this is unlikely to matter in practice,
   but it's not spec-perfect.
-- **Empty-payload pong.** Matches `ocpp-client`'s own WebSocket transport
-  (`src/transport/websocket.rs`) - neither echoes the triggering ping's payload today.
+- **Ping/pong payloads are carried verbatim** (they used to be dropped, sending empty control
+  frames). `ocpp-client`'s keepalive puts an 8-byte correlation token in each ping and matches the
+  pong that echoes it, so discarding the payload here would make every scheduled ping look
+  unanswered - and after `KeepalivePolicy::max_missed` of those, redial a perfectly healthy
+  connection. Inbound pings are answered with the triggering ping's payload, per RFC 6455 §5.5.3.
+  Control-frame payloads are capped at 125 bytes by the spec, so they always arrive whole in
+  `frame_buf` - no accumulation needed, unlike text frames.
 - **Reads/writes go through a single shared `Mutex<WebSocketClient<..>>`** for the encode/decode
   state machine (continuation-frame tracking, RNG for masking), while the actual socket I/O uses
   independent `TcpReader`/`TcpWriter` halves with no lock between them - so a concurrent

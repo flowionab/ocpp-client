@@ -21,12 +21,30 @@ default-members = ["."]
 [package]
 edition = '2024'
 name = "ocpp-client"
-version = "0.2.2"
+version = "0.3.0"
 description = "OCPP Client Implementation. Use this library to implement an OCPP charge point"
 repository = "https://github.com/flowionab/ocpp-client"
+documentation = "https://docs.rs/ocpp-client"
+readme = "README.md"
 license = "MIT OR Apache-2.0"
 authors = ["Joatin Granlund <joatin@granlund.io>"]
-keywords = ["OCPP", "ChargePoint", "Client", "ocpp16", "ocpp201"]
+# crates.io allows at most five.
+keywords = ["ocpp", "charge-point", "ocpp16", "ocpp201", "ocpp21"]
+categories = ["network-programming", "embedded", "no-std"]
+# What a *consumer* needs to build the library. Verified empirically with
+# `cargo +1.87 check --lib --all-features`; the binding constraint is `heapless` 0.9 (via
+# ocpp-types), not this crate's own code. Building the test suite needs 1.88 - the `rcgen`/`time`
+# dev-dependencies and a let-chain in tests/ - but that only affects contributors, not users.
+rust-version = "1.87"
+# Keep editor and CI scaffolding out of the published tarball. `.idea/` was shipping inside the
+# crate up to 0.2.2.
+exclude = [".idea/", ".github/", ".editorconfig"]
+
+# docs.rs builds only default features unless told otherwise, which would hide the `test`-gated
+# helpers (`wait_for`, the pending-count accessors) from the rendered docs even though they are
+# public API.
+[package.metadata.docs.rs]
+all-features = true
 
 [features]
 default = ["std", "tokio-runtime", "websocket", "ocpp_1_6", "ocpp_2_0_1", "ocpp_2_1"]
