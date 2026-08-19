@@ -1,3 +1,9 @@
+<a href="https://flowion.io">
+  <img src="https://flowion.io/brand/github-banner.png"
+       alt="Flowion — charging infrastructure, made easy. Open source from the team behind flowion.io."
+       width="100%">
+</a>
+
 # 🔌 OCPP Client
 
 > **A lightweight, embedded-friendly Rust OCPP communication framework for building real charge points and CSMS integrations.**
