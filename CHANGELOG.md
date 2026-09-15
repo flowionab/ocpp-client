@@ -5,6 +5,19 @@ Notable changes per release. Dates are release dates on crates.io.
 This file starts at 0.2.0; earlier releases (0.1.x, a per-version tokio-hardwired design that
 predates the current generic engine) are covered by git history only.
 
+## 0.6.0 - unreleased
+
+### Changed
+
+- **BREAKING: `ConnectOptions::password` is `Option<&[u8]>`, not `Option<&str>`.** OCPP configures
+  a Basic Auth password as the hexadecimal representation of an authorization key, and the charge
+  point sends the *decoded* bytes - 20 of them for a 1.6 `AuthorizationKey`. Those are almost
+  never valid UTF-8, so a `&str` could not carry them: a caller could only send the hex text,
+  which a spec-following CSMS rejects on every connect while both halves of the configuration look
+  right. Found by Flowion's sentinel, which was refused (`password_length: 40`) for exactly that
+  reason. A textual password migrates as `Some(password.as_bytes())`, and puts the same bytes on
+  the wire as before. `tests/connect_basic_auth.rs` pins a non-UTF-8 key arriving byte for byte.
+
 ## 0.5.0 - 2026-08-08
 
 Tracks `ocpp-types` 0.3.0. A dependency-only release: no source file in `src/` changed, and the

@@ -20,7 +20,11 @@ const DEFAULT_TIMEOUT: Duration = Duration::from_secs(5);
 #[derive(Clone)]
 pub struct ConnectOptions<'a> {
     pub username: Option<&'a str>,
-    pub password: Option<&'a str>,
+    /// The HTTP Basic password, as **bytes**. OCPP configures it as the hexadecimal representation
+    /// of an authorization key and the charge point sends the decoded bytes (20 for a 1.6
+    /// `AuthorizationKey`), which are almost never valid UTF-8 - so pass the decoded key, not its
+    /// hex text. A textual password is `Some(password.as_bytes())`.
+    pub password: Option<&'a [u8]>,
     pub timeout: Option<Duration>,
     /// Whether the returned client should reconnect automatically when the WebSocket
     /// connection drops. Defaults to `ReconnectBehavior::Enabled(ReconnectPolicy::default())` -
@@ -341,7 +345,7 @@ fn prepare(
     let password = options
         .as_ref()
         .and_then(|o| o.password)
-        .map(str::to_string);
+        .map(<[u8]>::to_vec);
     let tls_config = options.as_ref().and_then(|o| o.tls_config.clone());
 
     let custom = options.as_ref().and_then(|o| o.reconnector.clone());
@@ -396,7 +400,7 @@ struct WebSocketReconnector {
     address: String,
     protocol: &'static str,
     username: Option<String>,
-    password: Option<String>,
+    password: Option<Vec<u8>>,
     tls_config: Option<Arc<rustls::ClientConfig>>,
 }
 
@@ -454,7 +458,8 @@ async fn setup_socket(
     let mut tls_config = None;
     if let Some(options) = options {
         if let Some(username) = options.username {
-            let data = format!("{}:{}", username, options.password.unwrap_or(""));
+            let mut data = format!("{username}:").into_bytes();
+            data.extend_from_slice(options.password.unwrap_or_default());
             let encoded = BASE64_STANDARD.encode(data);
             request
                 .headers_mut()

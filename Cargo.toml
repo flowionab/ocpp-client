@@ -21,7 +21,7 @@ default-members = ["."]
 [package]
 edition = '2024'
 name = "ocpp-client"
-version = "0.5.0"
+version = "0.6.0"
 description = "OCPP Client Implementation. Use this library to implement an OCPP charge point"
 repository = "https://github.com/flowionab/ocpp-client"
 documentation = "https://docs.rs/ocpp-client"
