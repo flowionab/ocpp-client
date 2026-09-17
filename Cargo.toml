@@ -118,11 +118,11 @@ critical-section = { version = "1" }
 # WebSocket transport, which needs a tokio runtime regardless.
 tokio = { version = "1", features = ["sync", "rt", "time"], optional = true }
 
-tokio-tungstenite = { version = "0.28", features = ["rustls-tls-webpki-roots"], optional = true }
+tokio-tungstenite = { version = "0.30", features = ["rustls-tls-webpki-roots"], optional = true }
 futures = { version = "0.3", optional = true }
 url = { version = "2.5", optional = true }
 rustls = { version = "0.23", optional = true }
-base64 = { version = "0.22", optional = true }
+base64 = { version = "0.23", optional = true }
 tracing = { version = "0.1.44", default-features = false }
 
 [dev-dependencies]
@@ -131,7 +131,7 @@ chrono = { version = "^0.4", default-features = false, features = ["now"] }
 rcgen = { version = "0.14.8", default-features = false, features = ["aws_lc_rs", "pem"] }
 tokio-rustls = "0.26"
 tracing-test = { version = "0.2.6", features = ["no-env-filter"] }
-criterion = { version = "0.5", features = ["async_tokio"] }
+criterion = { version = "0.8", features = ["async_tokio"] }
 
 [[bench]]
 name = "call_roundtrip"

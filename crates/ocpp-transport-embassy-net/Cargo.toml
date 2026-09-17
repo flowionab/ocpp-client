@@ -31,7 +31,7 @@ embedded-websocket = { version = "0.9", default-features = false }
 # every client->server frame). `alloc` feature so `Box<dyn RngCore + Send>` implements RngCore,
 # letting callers plug in any RNG (e.g. a HAL-specific hardware RNG) without a generic parameter
 # propagating through every type in this crate.
-rand_core = { version = "0.6", default-features = false, features = ["alloc"] }
+rand_core = { version = "0.10", default-features = false, features = ["alloc"] }
 
 # Same structured-logging story as ocpp-client itself (see its CLAUDE.md/Cargo.toml): no_std,
 # used unconditionally, no Subscriber installed here - the firmware wires up its own (e.g. a
