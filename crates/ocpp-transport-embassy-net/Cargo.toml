@@ -22,6 +22,26 @@ embassy-time = { version = "0.5", default-features = false }
 embassy-sync = { version = "0.8", default-features = false }
 critical-section = { version = "1" }
 
+# embedded-io-async is the Read/Write trait set the transport is generic over (embassy-net
+# 0.9 and embedded-tls 0.18 both implement the 0.7 versions, so TCP and TLS halves are
+# interchangeable at the WebSocket layer).
+embedded-io-async = { version = "0.7", default-features = false }
+
+# TLS for wss:// endpoints: `rustpki` enables the `pki` module's certificate verifier
+# (chain + CN, no expiry under NoClock - see TlsVerify's docs), `rsa` pulls the RSA
+# signature schemes the majority of real CSMS certificates still use.
+embedded-tls = { version = "0.18", default-features = false, features = ["rustpki", "rsa", "alloc", "log"] }
+
+# `p256::ecdsa::DerSignature` is the `CryptoProvider::Signature` type embedded-tls's
+# `CryptoProvider` trait requires.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa"] }
+
+# embedded-tls's `pki` verifier (rustpki feature) uses `der::asn1::{SequenceOf, SetOf}`, which
+# live behind der's `heapless` feature - embedded-tls itself doesn't turn it on (an upstream
+# packaging gap that only surfaces when nothing else in the graph enables it). Depending on it
+# here unifies the feature on.
+der = { version = "0.8", default-features = false, features = ["heapless"] }
+
 # no_std websocket framing (handshake request/response building + frame encode/decode). We use
 # the sans-io `WebSocket` core directly (not the `framer_async` module) so we can drive it over
 # embassy-net's TcpReader/TcpWriter halves without an extra futures::Sink/Stream adapter layer.
@@ -37,3 +57,14 @@ rand_core = { version = "0.6", default-features = false, features = ["alloc"] }
 # used unconditionally, no Subscriber installed here - the firmware wires up its own (e.g. a
 # defmt/RTT-backed one).
 tracing = { version = "0.1.44", default-features = false }
+
+[dev-dependencies]
+# Runs the async code under test on the host (block_on, no embassy executor).
+futures = "0.3"
+# Registers the std-backed critical-section impl so the `EmbassyMutex`es in
+# transport.rs work on the host test target (on-device a HAL provides it).
+critical-section = { version = "1", features = ["std"] }
+# Host time driver: embassy_net::new calls Instant::now(), and the crate's
+# default-features=false embassy-time dep has no driver on its own (a HAL
+# provides `_embassy_time_now` on-device).
+embassy-time = { version = "0.5", features = ["std"] }
