@@ -37,6 +37,130 @@ use embedded_websocket::{
 use ocpp_client::{Reconnector, TransportError, TransportEvent, TransportSink, TransportStream};
 use rand_core::RngCore;
 
+// ---------------------------------------------------------------------------
+// Recycled connect-attempt allocations
+// ---------------------------------------------------------------------------
+//
+// Every (re)connect needs ~4 KiB of TCP buffers and, on `wss://`, ~19 KiB
+// more of TLS record buffers. `TcpSocket`/`TlsConnection` demand `&'static`
+// slices, so the straightforward implementation `Box::leak`s them per
+// attempt — which not only grows the heap forever but, worse, leaks the
+// socket itself: `TcpSocket`'s `Drop` is what removes it from the stack's
+// `SocketSet`, so a leaked socket holds its slot forever and a few failed
+// attempts make `TcpSocket::new` panic on a full set.
+//
+// Instead, connect-attempt buffers are leased from [`BUF_POOL`]: a global
+// freelist of `Box<[u8]>`es. While leased, a buffer is handed to the
+// socket/TLS layer as a `&'static mut` slice; when the owning guard drops —
+// i.e. when the last reader/writer half referencing that connection is
+// dropped — the buffer returns to the pool for the next attempt. The heap
+// cost of reconnecting is therefore bounded by the number of *concurrently
+// alive* connections, not by the number of attempts.
+//
+/// Freed connect-attempt buffers awaiting reuse.
+static BUF_POOL: EmbassyMutex<CriticalSectionRawMutex, Vec<Box<[u8]>>> =
+    EmbassyMutex::new(Vec::new());
+
+/// Pool capacity, in buffers. Sized for ~2 connections' worth (a new
+/// connection can briefly overlap an old one during a courtesy close).
+const BUF_POOL_CAP: usize = 10;
+
+/// A heap slice leased out of [`BUF_POOL`] (or freshly allocated when the
+/// pool holds none of the right size). Hands its memory to the socket/TLS
+/// layer as `&'static mut`, and reclaims it into the pool on drop.
+struct PooledBuf {
+    ptr: *mut u8,
+    len: usize,
+}
+
+impl PooledBuf {
+    /// Takes a buffer of exactly `len` bytes: recycled from [`BUF_POOL`]
+    /// when possible, freshly allocated otherwise.
+    async fn take(len: usize) -> Self {
+        let mut pool = BUF_POOL.lock().await;
+        match pool.iter().position(|b| b.len() == len) {
+            Some(i) => {
+                let b = pool.swap_remove(i);
+                Self {
+                    ptr: Box::into_raw(b).cast::<u8>(),
+                    len,
+                }
+            }
+            None => Self {
+                ptr: Box::into_raw(vec![0u8; len].into_boxed_slice()).cast::<u8>(),
+                len,
+            },
+        }
+    }
+
+    /// Views the leased memory as a `&'static mut` slice for the
+    /// socket/TLS layer.
+    ///
+    /// SAFETY: the memory is exclusively owned by this `PooledBuf` — it was
+    /// `Box::into_raw`'d by us and only returns to the pool from `Drop`,
+    /// which runs after every user of the slice is gone (the guards that
+    /// hold the `PooledBuf` outlive the halves that borrow the slice).
+    /// No two live `PooledBuf`s ever cover the same memory.
+    fn as_slice(&self) -> &'static mut [u8] {
+        unsafe { core::slice::from_raw_parts_mut(self.ptr, self.len) }
+    }
+}
+
+impl Drop for PooledBuf {
+    fn drop(&mut self) {
+        // SAFETY: `ptr`/`len` describe the exact box we `into_raw`'d in
+        // `take`, and nothing references the memory anymore (see
+        // `as_slice`).
+        let buf = unsafe { Box::from_raw(core::ptr::slice_from_raw_parts_mut(self.ptr, self.len)) };
+        let Ok(mut pool) = BUF_POOL.try_lock() else {
+            return;
+        };
+        if pool.len() < BUF_POOL_CAP {
+            pool.push(buf);
+        }
+    }
+}
+
+/// Owns a `TcpSocket` (and the buffers it was built from) for as long as
+/// any half of the connection is alive. The socket's `Drop` removes it
+/// from the stack's `SocketSet` — leaking it is what used to fill the set
+/// — and dropping it must only happen once every `TcpReader`/`TcpWriter`
+/// (and any `TlsConnection` layered on top) is gone, which the `Rc`s in
+/// [`TcpDuplex`] guarantee.
+struct SocketGuard {
+    socket: *mut TcpSocket<'static>,
+    _bufs: Vec<PooledBuf>,
+}
+
+impl Drop for SocketGuard {
+    fn drop(&mut self) {
+        // SAFETY: this runs when the last `Rc<SocketGuard>` drops, and
+        // every clone lives in a `TcpDuplex` reachable from a live half —
+        // so no `TcpReader`/`TcpWriter`/`TlsConnection` can still touch
+        // the socket. The `&'static mut` created in `connect` is dead
+        // along with them.
+        drop(unsafe { Box::from_raw(self.socket) });
+    }
+}
+
+/// Owns a `TlsConnection` (and its record buffers) on the same refcount
+/// discipline as [`SocketGuard`]: `TlsConnection::split` needs `&'static`,
+/// so the connection is boxed and its raw pointer kept here; the `Rc`
+/// clones in the sink/stream keep it alive until both halves are dropped.
+struct TlsGuard {
+    conn: *mut TlsConnection<'static, TcpDuplex, Aes128GcmSha256>,
+    _rec_bufs: Vec<PooledBuf>,
+}
+
+impl Drop for TlsGuard {
+    fn drop(&mut self) {
+        // SAFETY: same argument as `SocketGuard` — the last clone holder
+        // is gone, so neither `TlsReader` nor `TlsWriter` can touch the
+        // connection anymore.
+        drop(unsafe { Box::from_raw(self.conn) });
+    }
+}
+
 /// Builds a fresh RNG instance for each connect/reconnect attempt (RFC6455 requires client
 /// frames to be masked with unpredictable data; reseeding per attempt is simplest and avoids
 /// needing the RNG itself to be `Sync`). Wrap whatever RNG your board provides - a HAL hardware
@@ -160,30 +284,38 @@ type SharedWebSocket =
 /// When `config.tls` is set the TCP socket is upgraded to `embedded-tls` *before* the
 /// WebSocket handshake (i.e. `wss://`).
 ///
-/// Leaks the TCP socket and its buffers (`Box::leak`) to obtain the `'static` lifetime
-/// `TransportSink`/`TransportStream` require - standard practice for a connection meant to live
-/// for the rest of the firmware's run, not a per-call cost that accumulates (one leak per
-/// successful connect/reconnect, matching one `Client` living for the process lifetime).
+/// The socket and its buffers are not leaked: `TcpSocket::new` needs `&'static` buffers and
+/// `split` needs `&'static` on the socket, so both live behind refcounted guards
+/// ([`SocketGuard`]/[`TlsGuard`], buffers via [`PooledBuf`]). A failed attempt drops the
+/// guard immediately — freeing the `SocketSet` slot and recycling the buffers — and a
+/// successful one frees them when the client drops the transport halves.
 pub async fn connect(
     config: &ConnectConfig,
 ) -> Result<(Box<dyn TransportSink>, Box<dyn TransportStream>), TransportError> {
-    let rx_buf: &'static mut [u8] =
-        Box::leak(vec![0u8; config.socket_rx_buffer_size].into_boxed_slice());
-    let tx_buf: &'static mut [u8] =
-        Box::leak(vec![0u8; config.socket_tx_buffer_size].into_boxed_slice());
-    let socket: &'static mut TcpSocket<'static> =
-        Box::leak(Box::new(TcpSocket::new(config.stack, rx_buf, tx_buf)));
+    let rx = PooledBuf::take(config.socket_rx_buffer_size).await;
+    let tx = PooledBuf::take(config.socket_tx_buffer_size).await;
+    let socket_ptr =
+        Box::into_raw(Box::new(TcpSocket::new(config.stack, rx.as_slice(), tx.as_slice())));
+    let guard = Rc::new(SocketGuard {
+        socket: socket_ptr,
+        _bufs: vec![rx, tx],
+    });
+    // SAFETY: `SocketGuard` keeps the box alive (and untouched) until the
+    // last half derived from this `&'static mut` is dropped - see the
+    // guard's `Drop`.
+    let socket: &'static mut TcpSocket<'static> = unsafe { &mut *socket_ptr };
 
     socket.connect(config.remote).await.map_err(boxed_error)?;
 
     let (reader, writer) = socket.split();
+    let duplex = TcpDuplex::new(reader, writer, guard);
 
     match config.tls.clone() {
         Some(tls) => {
-            let (reader, writer) = open_tls(reader, writer, config, &tls).await?;
-            ws_handshake_and_build(reader, writer, config).await
+            let (reader, writer, tls_guard) = open_tls(duplex, config, &tls).await?;
+            ws_handshake_and_build(reader, writer, config, Some(tls_guard)).await
         }
-        None => ws_handshake_and_build(reader, writer, config).await,
+        None => ws_handshake_and_build(duplex.clone(), duplex, config, None).await,
     }
 }
 
@@ -199,24 +331,33 @@ pub async fn connect(
 /// deadlock). Both clones share each direction's mutex so a second concurrent borrow waits
 /// cooperatively rather than panicking.
 async fn open_tls(
-    reader: TcpReader<'static>,
-    writer: TcpWriter<'static>,
+    duplex: TcpDuplex,
     config: &ConnectConfig,
     tls: &TlsConfig,
 ) -> Result<
     (
         TlsReader<'static, TcpDuplex, Aes128GcmSha256>,
         TlsWriter<'static, TcpDuplex, Aes128GcmSha256>,
+        Rc<TlsGuard>,
     ),
     TransportError,
 > {
-    let duplex = TcpDuplex::new(reader, writer);
-    let rec_rx: &'static mut [u8] =
-        Box::leak(vec![0u8; tls.record_read_buffer_size].into_boxed_slice());
-    let rec_tx: &'static mut [u8] =
-        Box::leak(vec![0u8; tls.record_write_buffer_size].into_boxed_slice());
-    let connection: &'static mut TlsConnection<'_, TcpDuplex, Aes128GcmSha256> =
-        Box::leak(Box::new(TlsConnection::new(duplex, rec_rx, rec_tx)));
+    let rec_rx = PooledBuf::take(tls.record_read_buffer_size).await;
+    let rec_tx = PooledBuf::take(tls.record_write_buffer_size).await;
+    let conn_ptr = Box::into_raw(Box::new(TlsConnection::new(
+        duplex,
+        rec_rx.as_slice(),
+        rec_tx.as_slice(),
+    )));
+    let guard = Rc::new(TlsGuard {
+        conn: conn_ptr,
+        _rec_bufs: vec![rec_rx, rec_tx],
+    });
+    // SAFETY: `TlsGuard` keeps the box alive (and untouched) until the
+    // last half derived from this `&'static mut` is dropped - see the
+    // guard's `Drop`.
+    let connection: &'static mut TlsConnection<'static, TcpDuplex, Aes128GcmSha256> =
+        unsafe { &mut *conn_ptr };
 
     let tls_config = embedded_tls::TlsConfig::new().with_server_name(&config.host);
     // TLS needs a CSPRNG for its ephemeral key-share - `RngFactory`'s contract already requires
@@ -249,7 +390,8 @@ async fn open_tls(
         }
     }
 
-    Ok(connection.split())
+    let (reader, writer) = connection.split();
+    Ok((reader, writer, guard))
 }
 
 /// A `Clone`able `embedded_io_async` socket facade over `embassy_net`'s TCP halves, required
@@ -259,13 +401,21 @@ async fn open_tls(
 struct TcpDuplex {
     rx: Rc<EmbassyMutex<CriticalSectionRawMutex, TcpReader<'static>>>,
     tx: Rc<EmbassyMutex<CriticalSectionRawMutex, TcpWriter<'static>>>,
+    /// Keeps the underlying `TcpSocket` (and its buffers) alive while any
+    /// half is alive - dropping the last clone frees the `SocketSet` slot.
+    _guard: Rc<SocketGuard>,
 }
 
 impl TcpDuplex {
-    fn new(reader: TcpReader<'static>, writer: TcpWriter<'static>) -> Self {
+    fn new(
+        reader: TcpReader<'static>,
+        writer: TcpWriter<'static>,
+        guard: Rc<SocketGuard>,
+    ) -> Self {
         Self {
             rx: Rc::new(EmbassyMutex::new(reader)),
             tx: Rc::new(EmbassyMutex::new(writer)),
+            _guard: guard,
         }
     }
 }
@@ -340,6 +490,7 @@ async fn ws_handshake_and_build<R, W>(
     mut reader: R,
     mut writer: W,
     config: &ConnectConfig,
+    tls_guard: Option<Rc<TlsGuard>>,
 ) -> Result<(Box<dyn TransportSink>, Box<dyn TransportStream>), TransportError>
 where
     R: AsyncRead + 'static,
@@ -402,6 +553,7 @@ where
         writer,
         ws: ws.clone(),
         tx_scratch: vec![0u8; config.frame_buffer_size].into_boxed_slice(),
+        _tls_guard: tls_guard.clone(),
     };
     let stream = EmbassyWsStream {
         reader,
@@ -410,6 +562,7 @@ where
         frame_buf: vec![0u8; config.frame_buffer_size].into_boxed_slice(),
         pending,
         accumulated: Vec::new(),
+        _tls_guard: tls_guard,
     };
 
     Ok((Box::new(sink), Box::new(stream)))
@@ -487,6 +640,9 @@ struct EmbassyWsSink<W> {
     writer: W,
     ws: SharedWebSocket,
     tx_scratch: Box<[u8]>,
+    /// Keeps the `TlsConnection` (and its record buffers) alive while this
+    /// half is alive; `None` on the plaintext `ws://` path.
+    _tls_guard: Option<Rc<TlsGuard>>,
 }
 
 // SAFETY: `W` is a `TcpWriter` or `TlsWriter`, both of which hold `!Send` interior state
@@ -614,6 +770,8 @@ struct EmbassyWsStream<R> {
     /// Payload assembled so far for a Text message split across multiple websocket frames
     /// (fragmentation) or multiple decoder calls (frame_buf too small for one frame).
     accumulated: Vec<u8>,
+    /// See `EmbassyWsSink::_tls_guard`.
+    _tls_guard: Option<Rc<TlsGuard>>,
 }
 
 impl<R> TransportStream for EmbassyWsStream<R>
@@ -943,7 +1101,7 @@ mod tests {
         reader.capture = capture.clone();
         let writer = MockWriter(capture.clone());
         let result =
-            futures::executor::block_on(ws_handshake_and_build(reader, writer, config));
+            futures::executor::block_on(ws_handshake_and_build(reader, writer, config, None));
         (result, capture)
     }
 
@@ -1101,4 +1259,34 @@ mod tests {
         assert_eq!(payload, [1, 2, 3, 4]);
     }
 
+    #[test]
+    fn dropped_buffers_return_to_the_pool() {
+        futures::executor::block_on(async {
+            // Deterministic start: the pool is a global the other tests could
+            // in principle have already fed.
+            while BUF_POOL.lock().await.pop().is_some() {}
+
+            let buf = PooledBuf::take(64).await;
+            let ptr = buf.ptr;
+            drop(buf);
+            assert_eq!(BUF_POOL.lock().await.len(), 1);
+
+            // A same-length `take` recycles the just-dropped buffer.
+            let recycled = PooledBuf::take(64).await;
+            assert_eq!(recycled.ptr, ptr);
+            drop(recycled);
+
+            // Other lengths pool independently.
+            drop(PooledBuf::take(256).await);
+            assert_eq!(BUF_POOL.lock().await.len(), 2);
+
+            // And the pool never grows past BUF_POOL_CAP.
+            let mut held = Vec::new();
+            for _ in 0..BUF_POOL_CAP + 2 {
+                held.push(PooledBuf::take(96).await);
+            }
+            drop(held);
+            assert_eq!(BUF_POOL.lock().await.len(), BUF_POOL_CAP);
+        });
+    }
 }
