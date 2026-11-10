@@ -504,10 +504,18 @@ where
 
     let mut handshake_buf = vec![0u8; config.handshake_buffer_size];
     let sub_protocols = [config.sub_protocol];
+    // `embedded-websocket` always emits an `Origin` header, and a present-but-empty
+    // one fails origin validation in Spring-based CSMSes (steve answers 403).
+    // A well-formed `scheme://host` passes — the value is informational here.
+    let origin = alloc::format!(
+        "{}://{}",
+        if config.tls.is_some() { "https" } else { "http" },
+        config.host
+    );
     let options = WebSocketOptions {
         path: &config.path,
         host: &config.host,
-        origin: "",
+        origin: &origin,
         sub_protocols: Some(&sub_protocols),
         additional_headers: None,
     };
@@ -1257,6 +1265,31 @@ mod tests {
         let (opcode, payload) = decode_client_frame(&capture[request_len..]);
         assert_eq!(opcode, 0xA, "expected a pong frame");
         assert_eq!(payload, [1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn origin_is_a_well_formed_scheme_and_host() {
+        // embedded-websocket always emits an `Origin` header; an empty one
+        // fails origin validation in Spring-based CSMSes (steve answers 403).
+        // `ws://` composes `http://host`, `wss://` composes `https://host`.
+        let config = test_config(None);
+        let (_sink, _stream, capture) = handshake(&config, mock_reader(&[]));
+        let capture = capture.borrow();
+        let request = core::str::from_utf8(&capture).expect("request is not utf-8");
+        assert!(
+            request.contains("Origin: http://csms.example.com\r\n"),
+            "bad Origin in {request:?}"
+        );
+        drop(capture);
+
+        let config = test_config(Some(TlsConfig::default()));
+        let (_sink, _stream, capture) = handshake(&config, mock_reader(&[]));
+        let capture = capture.borrow();
+        let request = core::str::from_utf8(&capture).expect("request is not utf-8");
+        assert!(
+            request.contains("Origin: https://csms.example.com\r\n"),
+            "bad Origin in {request:?}"
+        );
     }
 
     #[test]
