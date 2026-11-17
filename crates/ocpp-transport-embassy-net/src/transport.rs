@@ -294,8 +294,11 @@ pub async fn connect(
 ) -> Result<(Box<dyn TransportSink>, Box<dyn TransportStream>), TransportError> {
     let rx = PooledBuf::take(config.socket_rx_buffer_size).await;
     let tx = PooledBuf::take(config.socket_tx_buffer_size).await;
-    let socket_ptr =
-        Box::into_raw(Box::new(TcpSocket::new(config.stack, rx.as_slice(), tx.as_slice())));
+    let socket_ptr = Box::into_raw(Box::new(TcpSocket::new(
+        config.stack,
+        rx.as_slice(),
+        tx.as_slice(),
+    )));
     let guard = Rc::new(SocketGuard {
         socket: socket_ptr,
         _bufs: vec![rx, tx],
@@ -407,11 +410,7 @@ struct TcpDuplex {
 }
 
 impl TcpDuplex {
-    fn new(
-        reader: TcpReader<'static>,
-        writer: TcpWriter<'static>,
-        guard: Rc<SocketGuard>,
-    ) -> Self {
+    fn new(reader: TcpReader<'static>, writer: TcpWriter<'static>, guard: Rc<SocketGuard>) -> Self {
         Self {
             rx: Rc::new(EmbassyMutex::new(reader)),
             tx: Rc::new(EmbassyMutex::new(writer)),
@@ -509,7 +508,11 @@ where
     // A well-formed `scheme://host` passes — the value is informational here.
     let origin = alloc::format!(
         "{}://{}",
-        if config.tls.is_some() { "https" } else { "http" },
+        if config.tls.is_some() {
+            "https"
+        } else {
+            "http"
+        },
         config.host
     );
     let options = WebSocketOptions {
