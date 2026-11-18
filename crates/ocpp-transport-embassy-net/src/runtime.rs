@@ -24,11 +24,17 @@ use ocpp_client::{Executor, Timer};
 /// (or at least a const-expression that doesn't reference another item in the same module;
 /// pointing it at this const causes a "cycle detected checking if POOL_SIZE is a trivial const"
 /// error) so the two can't just share one definition. If you bump one, bump the other.
-pub const POOL_SIZE: usize = 8;
+///
+/// Sized for the charge-point use case, not just a bare `Client`: the read loop plus keepalive
+/// plus one slot per registered `on_*` handler adds up quickly once `ocpp-charge-point`
+/// registers its functional-block handlers (a 1.6J-only charge point already sits in the
+/// mid-teens). 32 gives headroom for every 1.6J/2.0.1 block plus firmware-side tasks; each slot
+/// is static RAM (~`size_of::<run_boxed_future>()` bytes, i.e. small).
+pub const POOL_SIZE: usize = 32;
 
 type BoxedFuture = Pin<Box<dyn Future<Output = ()> + Send + 'static>>;
 
-#[embassy_executor::task(pool_size = 8)]
+#[embassy_executor::task(pool_size = 32)]
 async fn run_boxed_future(future: BoxedFuture) {
     future.await;
 }
